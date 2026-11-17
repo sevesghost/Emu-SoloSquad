@@ -32,6 +32,9 @@ namespace EmuEx
 void SaturnSystem::onSessionOptionsLoaded(EmuApp &app)
 {
 	applyInputConfig(app);
+	// applyInputConfig programs SMPC from the config it was given, which a
+	// session reset has just cleared. Re-apply 4-player multitap after that.
+	enablePort1Multitap(app.defaultVController().playerControls() >= 4);
 }
 
 bool SaturnSystem::resetSessionOptions(EmuApp &app)

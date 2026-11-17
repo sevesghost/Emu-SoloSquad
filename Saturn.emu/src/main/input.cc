@@ -101,8 +101,11 @@ static const char *toString(InputDeviceType dev)
 void SaturnSystem::enablePort1Multitap(bool enabled)
 {
 	inputConfig.multitaps[0] = enabled;
-	if(enabled && inputConfig.devs[0] == InputDeviceType::gun)
-		inputConfig.devs[0] = InputDeviceType::gamepad;
+	if(enabled)
+	{
+		for(int slot = 0; slot < 4; ++slot)
+			inputConfig.devs[slot] = InputDeviceType::gamepad;
+	}
 	if(!hasContent())
 		return;
 	using namespace MDFN_IEN_SS;
@@ -112,6 +115,7 @@ void SaturnSystem::enablePort1Multitap(bool enabled)
 	{
 		mdfnGameInfo.SetInput(idx, toString(dev), reinterpret_cast<uint8*>(&inputBuff[idx]));
 	}
+	currStateSize = stateSizeMDFN();
 }
 
 void SaturnSystem::applyInputConfig(InputConfig config, EmuApp &app)
