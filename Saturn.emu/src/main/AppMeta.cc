@@ -20,7 +20,6 @@ import emuex;
 import imagine;
 import std;
 #include <emuframework/EmuAppInlines.hh>
-#include <emuframework/VController.hh>
 
 namespace EmuEx
 {
