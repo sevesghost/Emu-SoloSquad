@@ -61,10 +61,13 @@ void VController::setTwoPlayerControls(bool on)
 	twoPlayer_ = on;
 	duoCustomized_ = false;
 	resetEmulatedDeviceGroups();
-	// Off then on brings the Mode button back, same as rebuilding the
-	// gamepad groups. A removal only sticks across relaunch.
+	// Off then on brings the Mode button back. Joint/Separate does not
+	// call this, so a removal survives that switch.
 	if(on)
-		duoModeButtonRemoved_ = false;
+	{
+		for(auto &elem : uiElements)
+			elem.duoFlags = uint8_t(elem.duoFlags & uint8_t(~0x80));
+	}
 	syncDuoModeButton();
 	if(hasWindow())
 	{
@@ -214,14 +217,20 @@ bool VController::uiElementIsDuoModeButton(const VControllerElement &elem) const
 
 void VController::noteUIButtonRemoved(KeyInfo key)
 {
-	if(isDuoModeKey(key))
-		duoModeButtonRemoved_ = true;
+	if(!isDuoModeKey(key))
+		return;
+	// Bit 7 rides along in the UI button trailer. It is not a position flag.
+	// While it is set, syncDuoModeButton will not grow a new Mode button.
+	for(auto &elem : uiElements)
+		elem.duoFlags = uint8_t(elem.duoFlags | 0x80);
 }
 
 void VController::noteUIButtonAdded(KeyInfo key)
 {
-	if(isDuoModeKey(key))
-		duoModeButtonRemoved_ = false;
+	if(!isDuoModeKey(key))
+		return;
+	for(auto &elem : uiElements)
+		elem.duoFlags = uint8_t(elem.duoFlags & ~0x80);
 }
 
 void VController::onLayoutEditorClosed()
@@ -232,31 +241,43 @@ void VController::onLayoutEditorClosed()
 void VController::ensureDuoModeButton(bool resetToDefault)
 {
 	if(resetToDefault)
-		duoModeButtonRemoved_ = false;
-	bool present = std::ranges::any_of(uiElements, [&](const VControllerElement &elem)
-	{
-		return uiElementIsDuoModeButton(elem);
-	});
-	auto eraseModeButton = [&]()
 	{
 		std::erase_if(uiElements, [&](const VControllerElement &elem)
 		{
 			return uiElementIsDuoModeButton(elem);
 		});
-	};
-	switch(decideDuoModeButton(twoPlayer_, duoModeButtonRemoved_, present, resetToDefault))
-	{
-		case DuoModeButtonSync::Keep:
-			// Do not call setDuoPosition and do not change state. A moved
-			// anchor and HIDDEN/OFF survive configure() after relaunch.
-			return;
-		case DuoModeButtonSync::Erase:
-			eraseModeButton();
-			return;
-		case DuoModeButtonSync::Create:
-			eraseModeButton();
-			break;
+		for(auto &elem : uiElements)
+			elem.duoFlags = uint8_t(elem.duoFlags & ~0x80);
 	}
+	syncDuoModeButton();
+}
+
+void VController::syncDuoModeButton()
+{
+	auto isMode = [](const VControllerElement &elem)
+	{
+		auto *grp = elem.uiButtonGroup();
+		if(!grp)
+			return false;
+		return std::ranges::any_of(grp->buttons, [](const VControllerButton &btn)
+		{
+			return btn.key.flags.appCode && AppKeyCode(btn.key.codes[0]) == AppKeyCode::toggleDuoLayout;
+		});
+	};
+	if(!twoPlayer_)
+	{
+		std::erase_if(uiElements, isMode);
+		return;
+	}
+	// Already loaded: keep its millimetre anchor and HIDDEN/OFF state.
+	// setDuoPosition is only for a button we create below.
+	if(std::ranges::any_of(uiElements, isMode))
+		return;
+	// User deleted it. Bit 7 is stored on a remaining UI element and
+	// round-trips in the UI_BUTTONS_V2 trailer. Joint/Separate does not
+	// clear it, so the button stays gone across that switch too.
+	if(std::ranges::any_of(uiElements, [](const VControllerElement &elem) { return elem.duoFlags & 0x80; }))
+		return;
 	VControllerUIButtonGroup::Config conf;
 	conf.keys = {KeyInfo::appKey(AppKeyCode::toggleDuoLayout)};
 	conf.layout.rowItems = 1;
@@ -270,11 +291,6 @@ void VController::ensureDuoModeButton(bool resetToDefault)
 	setDuoPosition(elem, 1, CT2DO, 0.f, 30.f);
 	if(hasWindow())
 		update(elem);
-}
-
-void VController::syncDuoModeButton()
-{
-	ensureDuoModeButton(false);
 }
 
 void VController::rebuildDuoIfNeeded()

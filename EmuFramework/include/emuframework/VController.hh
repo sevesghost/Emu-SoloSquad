@@ -727,7 +727,6 @@ public:
 	void noteUIButtonRemoved(KeyInfo key);
 	void noteUIButtonAdded(KeyInfo key);
 	bool uiElementIsDuoModeButton(const VControllerElement &) const;
-	bool duoModeButtonRemoved() const { return duoModeButtonRemoved_; }
 
 private:
 	ApplicationContext appCtx{};
@@ -754,7 +753,6 @@ private:
 	bool showSharedRow_{};
 	bool duoCustomized_{};
 	bool duoV3Loaded_{};
-	bool duoModeButtonRemoved_{};
 	int16_t p1Size_{1000};
 	int16_t p2Size_{1000};
 	int16_t sharedSize_{1000};
