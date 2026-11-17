@@ -35,6 +35,7 @@ public:
 	bool inputEvent(const Input::Event&, ViewInputEventParams p = {}) final;
 	void draw(Gfx::RendererCommands &__restrict__ cmds, ViewDrawParams p = {}) const final;
 	void onShow() final;
+	void onDismiss() final;
 
 private:
 	struct DragData

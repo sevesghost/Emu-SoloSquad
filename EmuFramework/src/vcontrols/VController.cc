@@ -740,6 +740,8 @@ static bool readVControllerElement(InputManager &mgr, MapIO &io, std::vector<VCo
 	return true;
 }
 
+// sizeMM100x, ownAlpha, duoFlags, duoRole. Also the matching trailer
+// written after every UI element in writeUIButtonsConfig.
 static bool readDuoExtra(MapIO &io, VControllerElement &elem)
 {
 	elem.sizeMM100x = io.get<int16_t>();
@@ -830,6 +832,53 @@ bool VController::readConfig(EmuApp &app, MapIO &io, unsigned key)
 				if(!readVControllerElement(app.inputManager, io, uiElements, true))
 					return false;
 			}
+			// Bytes still unread. Real MapIO::size() is the whole buffer and
+			// tell() is the cursor. The host test's blob has no tell(); its
+			// size() is already the unread tail. The check has to be a
+			// template or both branches are type-checked.
+			size_t remaining = []<class IO>(IO &in) -> size_t
+			{
+				if constexpr(requires { in.tell(); })
+				{
+					auto pos = in.tell();
+					return (pos >= 0 && size_t(pos) <= in.size()) ? in.size() - size_t(pos) : 0;
+				}
+				else
+					return in.size();
+			}(io);
+			constexpr size_t duoExtraBytes = sizeof(int16_t) + sizeof(uint8_t) * 3;
+			if(elements && remaining >= size_t(elements) * duoExtraBytes)
+			{
+				for(auto &elem : uiElements)
+					readDuoExtra(io, elem);
+			}
+			else if(!elements)
+			{
+				// Saved empty layout. A fresh install has no key at all, so
+				// configure() must not treat this the same way and recreate buttons.
+				auto &marker = uiElements.emplace_back(std::in_place_type<VControllerUIButtonGroup>);
+				marker.layoutPos[0].pos.x = -2;
+				marker.layoutPos[0].pos.y = -2;
+				marker.layoutPos[1].pos.x = -2;
+				marker.layoutPos[1].pos.y = -2;
+			}
+			else
+			{
+				for(auto &elem : uiElements)
+				{
+					auto *grp = elem.uiButtonGroup();
+					// Only the generated Mode button was stored as millimetres*10
+					// with the flag omitted. Other UI groups use pixel anchors.
+					if(!grp || grp->buttons.size() != 1)
+						continue;
+					auto &key = grp->buttons[0].key;
+					if(!(key.flags.appCode && AppKeyCode(key.codes[0]) == AppKeyCode::toggleDuoLayout))
+						continue;
+					elem.duoFlags |= VControllerElement::DUO_POS_MM;
+					if(!elem.sizeMM100x)
+						elem.sizeMM100x = 900;
+				}
+			}
 			return true;
 		}
 	}
@@ -894,6 +943,8 @@ static size_t configDataSizeBytes(const std::vector<VControllerElement> &elems, 
 		bytes++; // element type
 		bytes += e.configSize();
 	}
+	if(savingUIElems)
+		bytes += elems.size() * (sizeof(int16_t) + sizeof(uint8_t) * 3);
 	return bytes;
 }
 
@@ -964,6 +1015,14 @@ void VController::writeUIButtonsConfig(FileIO &io) const
 	io.put(uint8_t(std::min(uiElements.size(), 255zu)));
 	log.info("wrote UI button data ({} bytes) with {} element(s)", bytes, uiElements.size());
 	for(const auto &e : uiElements) { writeToConfig(e, io); }
+	// sizeMM100x, ownAlpha, duoFlags, duoRole. Older readers stop after state.
+	for(const auto &e : uiElements)
+	{
+		io.put(e.sizeMM100x);
+		io.put(e.ownAlpha);
+		io.put(e.duoFlags);
+		io.put(e.duoRole);
+	}
 }
 
 void VController::writeConfig(FileIO &io) const
@@ -1002,7 +1061,21 @@ void VController::configure(Window &win, Gfx::Renderer &renderer, const Gfx::Gly
 	}
 	gamepadTex = app().asset(AssetID::gamepadOverlay);
 	uiTex = app().asset(AssetID::more);
-	if(uiElements.size() && uiElements[0].layoutPos[0].pos.x == -1)
+	bool explicitEmptyLayout{};
+	if(uiElements.size() == 1)
+	{
+		auto &marker = uiElements[0];
+		auto *grp = marker.uiButtonGroup();
+		explicitEmptyLayout = grp && grp->buttons.empty()
+			&& marker.layoutPos[0].pos.x == -2 && marker.layoutPos[0].pos.y == -2
+			&& marker.layoutPos[1].pos.x == -2 && marker.layoutPos[1].pos.y == -2;
+	}
+	if(explicitEmptyLayout)
+	{
+		// Key 113 was saved with zero UI elements. Do not recreate them.
+		uiElements.clear();
+	}
+	else if(uiElements.size() && uiElements[0].layoutPos[0].pos.x == -1)
 	{
 		resetUIGroups();
 	}
@@ -1023,7 +1096,8 @@ void VController::configure(Window &win, Gfx::Renderer &renderer, const Gfx::Gly
 		};
 	}
 	setInputPlayer(0);
-	syncDuoModeButton();
+	if(!explicitEmptyLayout)
+		syncDuoModeButton();
 }
 
 void VController::resetEmulatedDevicePositions(std::vector<VControllerElement> &gpElements) const
@@ -1254,6 +1328,15 @@ void VController::update(VControllerElement &elem) const
 
 bool VController::remove(VControllerElement &elemToErase)
 {
+	if(uiElementIsDuoModeButton(elemToErase))
+	{
+		for(auto &elem : uiElements)
+		{
+			if(&elem == &elemToErase)
+				continue;
+			elem.duoFlags = uint8_t(elem.duoFlags | 0x80);
+		}
+	}
 	return std::erase_if(gpElements, [&](auto &e) { return &e == &elemToErase; }) ||
 		std::erase_if(uiElements, [&](auto &e) { return &e == &elemToErase; });
 }

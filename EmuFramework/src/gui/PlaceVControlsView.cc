@@ -202,4 +202,9 @@ void PlaceVControlsView::onShow()
 	vController.applyButtonAlpha(.75);
 }
 
+void PlaceVControlsView::onDismiss()
+{
+	vController.onLayoutEditorClosed();
+}
+
 }

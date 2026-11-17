@@ -712,8 +712,21 @@ public:
 	VControllerElement &addDuoDPad(std::span<const KeyInfo, 4> keys, int16_t sizeMM100x, uint8_t playerSet, uint8_t role);
 	void setDuoPosition(VControllerElement &elem, int layoutIdx, _2DOrigin origin, float xMm, float yMm);
 	void setVideoBottomInsetMM(int layout, float mm);
+	// resetToDefault replaces the Mode button with a fresh SHOWN one at the
+	// default position. Otherwise an existing button keeps its position and
+	// state (HIDDEN stays hidden).
+	void ensureDuoModeButton(bool resetToDefault);
 	void syncDuoModeButton();
 	void rebuildDuoIfNeeded();
+	// Writes the config. The touch-layout screens call this as they close
+	// so a kill before process exit does not drop the edit.
+	void onLayoutEditorClosed();
+	// Remember that the user deleted the Toggle Control Layout button.
+	// Adding that key back clears the flag. Default false, so old configs
+	// that never wrote the field still show the button.
+	void noteUIButtonRemoved(KeyInfo key);
+	void noteUIButtonAdded(KeyInfo key);
+	bool uiElementIsDuoModeButton(const VControllerElement &) const;
 
 private:
 	ApplicationContext appCtx{};
