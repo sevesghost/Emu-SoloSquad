@@ -449,6 +449,9 @@ public:
 		.defaultValue = true
 	}> lowLatencyVideo;
 
+	// Used by VController::onLayoutEditorClosed. The FileIO overload stays protected.
+	void saveConfigFile(ApplicationContext);
+
 protected:
 	struct ConfigParams
 	{
@@ -463,7 +466,6 @@ protected:
 
 	void onMainWindowCreated(ViewAttachParams, const Input::Event &);
 	ConfigParams loadConfigFile(ApplicationContext);
-	void saveConfigFile(ApplicationContext);
 	void saveConfigFile(FileIO &);
 	void initOptions(ApplicationContext);
 	void applyRenderPixelFormat();
