@@ -13,6 +13,7 @@
 // to CASES at the bottom. Use t.check(cond, "msg"). Return early after a failed check
 // if later steps would crash.
 #include "stubs.hh"
+#include "gen/features.h" // HAVE_* flags from extract.py (which symbols this source tree has)
 #include <cstdio>
 #include <functional>
 #include <string>
@@ -33,6 +34,9 @@ public:
 	FanQuadIdxs fanQuadIdxs;
 	int gamepadTex{}, uiTex{};
 	int resetEmulatedDeviceGroupsCalls{};
+#ifdef HAVE_DUO_REMOVED_FLAG
+	bool duoModeButtonRemoved_{};
+#endif
 
 	// --- simulated environment ---
 	EmuApp &app() { return app_; }
@@ -44,6 +48,7 @@ public:
 	void update(VControllerElement &) const {}
 	void place() {}
 	void setInputPlayer(int) {}
+	int appContext() const { return 0; }
 	void resetEmulatedDeviceGroups() { resetEmulatedDeviceGroupsCalls++; gpElements.clear(); gpElements.emplace_back(std::in_place_type<VControllerButtonGroup>); gpElements[0].layoutPos[0].pos = {10, 10}; }
 	// SIMULATED: real one uses add(rightUIComponents/leftUIComponents) + resetUIPositions
 	std::vector<VControllerElement> defaultUIGroups() const
@@ -65,6 +70,22 @@ public:
 	void setTwoPlayerControls(bool);
 	void setDuoLayout(DuoLayout);
 	bool readUIButtonsConfigCase(EmuApp &, MapIO &);
+	bool remove(VControllerElement &);
+#ifdef HAVE_ENSURE_DUO_MODE_BUTTON
+	void ensureDuoModeButton(bool resetToDefault);
+#endif
+#ifdef HAVE_ON_LAYOUT_EDITOR_CLOSED
+	void onLayoutEditorClosed();
+#endif
+#ifdef HAVE_NOTE_UI_BUTTON_REMOVED
+	void noteUIButtonRemoved(KeyInfo);
+#endif
+#ifdef HAVE_NOTE_UI_BUTTON_ADDED
+	void noteUIButtonAdded(KeyInfo);
+#endif
+#ifdef HAVE_UI_ELEMENT_IS_DUO_MODE_BUTTON
+	bool uiElementIsDuoModeButton(const VControllerElement &) const;
+#endif
 };
 
 #include "gen/real_code.inc"
@@ -95,10 +116,19 @@ inline VController makeDefaultController(bool twoPlayer = true)
 	return vc;
 }
 
-// "Remove This Button" in TouchConfigView (erases the element from uiElements).
+// Removing the Mode button element in the editor -> REAL VController::remove()
+// (on PR #2 that also records duoModeButtonRemoved_; on master it is a plain erase).
 inline bool removeDuoButton(VController &vc)
 {
-	return std::erase_if(vc.uiElements, isDuoModeButton) > 0;
+	bool any = false;
+	while(auto *e = findDuoButton(vc)) { if(!vc.remove(*e)) break; any = true; }
+	return any;
+}
+
+// Remove every UI element through the REAL remove() path (case H).
+inline void removeAllUIButtons(VController &vc)
+{
+	while(!vc.uiElements.empty()) { if(!vc.remove(vc.uiElements.front())) break; }
 }
 
 // "Add Button" in TouchConfigView: VController::add(InputComponentDesc{ui, {toggleDuoLayout}, CT2DO}).
@@ -108,6 +138,9 @@ inline VControllerElement &addDuoButtonBack(VController &vc)
 	auto &e = vc.uiElements.emplace_back(std::in_place_type<VControllerUIButtonGroup>,
 		VControllerUIButtonGroup::Config{{KeyInfo::appKey(AppKeyCode::toggleDuoLayout)}, {1, CT2DO}});
 	e.layoutPos[0] = e.layoutPos[1] = {C2DO, {0, 0}};
+#ifdef HAVE_NOTE_UI_BUTTON_ADDED
+	vc.noteUIButtonAdded(KeyInfo::appKey(AppKeyCode::toggleDuoLayout)); // REAL: TouchConfigView calls this on add
+#endif
 	return e;
 }
 
@@ -132,7 +165,10 @@ inline VController loadAndConfigure(ConfigBlob blob, bool twoPlayer = true, DuoL
 		blob.get<uint16_t>();
 		auto key = blob.get<uint16_t>();
 		if(key != CFGKEY_VCONTROLLER_UI_BUTTONS_V2) throw std::runtime_error("unexpected config key");
-		if(!vc.readUIButtonsConfigCase(vc.app_, blob)) throw std::runtime_error("readConfig UI buttons failed");
+		// Real loader hands readConfig a subView of just this key's payload.
+		ConfigBlob payload; payload.bytes.assign(blob.bytes.begin() + 4, blob.bytes.end());
+		if(!vc.readUIButtonsConfigCase(vc.app_, payload)) throw std::runtime_error("readConfig UI buttons failed");
+		if(payload.size() != payload.rd) throw std::runtime_error("readConfig left " + std::to_string(payload.size() - payload.rd) + " unread bytes in key 113");
 	}
 	launch(vc);
 	return vc;
@@ -141,12 +177,28 @@ inline VController loadAndConfigure(ConfigBlob blob, bool twoPlayer = true, DuoL
 // Close + reopen the app: save -> fresh process -> load -> configure.
 inline VController relaunch(const VController &vc) { return loadAndConfigure(saveUIButtons(vc), vc.twoPlayer_, vc.duoLayout_); }
 
+#ifdef HAVE_UI_DUO_EXTRA_BYTES
+// Drop the PR #2 trailer from a saved key-113 blob to get the pre-PR format.
+inline void stripDuoTrailer(ConfigBlob &b, size_t elems)
+{
+	size_t n = 1 + elems * uiButtonDuoExtraBytes;
+	if(b.bytes.size() < 4 + n) throw std::runtime_error("blob too small for trailer");
+	b.bytes.resize(b.bytes.size() - n);
+	uint16_t sz; std::memcpy(&sz, b.bytes.data(), 2); sz = uint16_t(sz - n); std::memcpy(b.bytes.data(), &sz, 2);
+}
+#endif
+
 // Old-format config: UI buttons blob written before the Duo button existed
 // (default UI groups only, no toggleDuoLayout element, no duo extra fields).
 inline ConfigBlob oldConfigBlobWithoutDuoButton()
 {
 	VController old; old.uiElements = old.defaultUIGroups();
-	return saveUIButtons(old);
+	auto b = saveUIButtons(old);
+#ifdef HAVE_UI_DUO_EXTRA_BYTES
+	// This tree writes the PR #2 trailer (u8 removed + 5 bytes/element); an old build did not.
+	stripDuoTrailer(b, old.uiElements.size());
+#endif
+	return b;
 }
 
 // Real setTwoPlayerControls / setDuoLayout (for edge cases; NOT fixed this round, see MANUAL.md).
@@ -280,12 +332,50 @@ static void caseE_oldConfigWithoutButton(Ctx &t)
 	checkDefault(vc2, "no key 113: ");
 }
 
-// F: leaving the layout editor writes config immediately
-static void caseF_saveOnLeavingEditor(Ctx &)
+// F: leaving the layout editor writes config immediately.
+// Seam (PR #2): views' onDismiss() -> REAL VController::onLayoutEditorClosed() -> app().saveConfigFile().
+// The GUI views themselves can't be built on host, so their wiring is checked as source probes
+// (extract.py), and the seam's effect is checked by "killing" the app right after it runs:
+// the only data that survives is what saveConfigFile wrote.
+static void caseF_saveOnLeavingEditor(Ctx &t)
 {
-	// TouchConfigView is a full GUI View (needs ViewAttachParams, window, renderer);
-	// not host-testable without a seam. See MANUAL.md case F.
-	throw Skip{"not host-testable: TouchConfigView needs GUI; manual step F in MANUAL.md"};
+#ifndef HAVE_ON_LAYOUT_EDITOR_CLOSED
+	(void)t;
+	throw Skip{"no onLayoutEditorClosed() seam in this tree; manual step F in MANUAL.md"};
+#else
+#ifndef HAVE_VIRTUAL_ON_DISMISS
+	t.check(false, "View::onDismiss() is not virtual: editor views' onDismiss overrides would never run");
+#endif
+#ifndef HAVE_TOUCHCONFIG_DISMISS_SAVES
+	t.check(false, "TouchConfigView::onDismiss() does not call vController.onLayoutEditorClosed()");
+#endif
+#ifndef HAVE_PLACEVCONTROLS_DISMISS_SAVES
+	t.check(false, "PlaceVControlsView::onDismiss() does not call vController.onLayoutEditorClosed()");
+#endif
+	ConfigBlob disk; // the config file on "disk"
+	auto vc = makeDefaultController();
+	vc.app_.onSaveConfigFile = [&]{ disk = saveUIButtons(vc); };
+	// edit 1: remove Mode button, leave editor, kill
+	removeDuoButton(vc);
+	vc.onLayoutEditorClosed();
+	t.check(vc.app_.saveConfigFileCalls == 1, "leaving editor: saveConfigFile called " + std::to_string(vc.app_.saveConfigFileCalls) + " times, expected 1");
+	if(!t.check(!disk.bytes.empty(), "leaving editor: nothing written to config")) return;
+	auto killed = loadAndConfigure(disk);
+	t.check(countDuoButtons(killed) == 0, "kill right after leaving editor: removal lost, Duo button came back");
+	// edit 2: Reset UI Groups (button back, moved+hidden), leave editor, kill
+	resetUI(vc);
+	auto *e = findDuoButton(vc);
+	if(!t.check(e != nullptr, "reset: no Duo button")) return;
+	setDuoButtonPosMM(vc, *e, 0, RB2DO, -11.f, -9.f);
+	setDuoButtonState(*e, VControllerState::HIDDEN);
+	auto want = e->layoutPos[0];
+	vc.onLayoutEditorClosed();
+	auto killed2 = loadAndConfigure(disk);
+	auto *e2 = findDuoButton(killed2);
+	if(!t.check(e2 != nullptr, "kill after 2nd edit: Duo button missing")) return;
+	t.check(e2->layoutPos[0].origin == want.origin && e2->layoutPos[0].pos == want.pos && e2->state == VControllerState::HIDDEN,
+		"kill after 2nd edit: moved/hidden state not in the saved config");
+#endif
 }
 
 // G (edge, in main scope): remove -> switch Joint/Separate -> relaunch -> stays removed
@@ -309,7 +399,8 @@ static void caseG_removeToggleLayoutRelaunch(Ctx &t)
 static void caseH_allUIButtonsRemoved(Ctx &t)
 {
 	auto vc = makeDefaultController();
-	vc.uiElements.clear();
+	removeAllUIButtons(vc); // real remove() path, as the user would
+	if(!t.check(vc.uiElements.empty(), "removeAllUIButtons left elements")) return;
 	auto vc2 = relaunch(vc); // an exception/crash here fails the case
 	t.check(countDuoButtons(vc2) == 0, "after removing all UI buttons + relaunch: Duo button came back");
 	t.check(vc2.uiElements.empty(), "after removing all UI buttons + relaunch: " + std::to_string(vc2.uiElements.size()) + " UI elements reappeared");

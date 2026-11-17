@@ -16,7 +16,7 @@ Before each case: Options → On-screen Input Setup → **Reset UI Groups** (or 
 | E old config | Install an older build (before the Mode button) or use the sample config from (ตก) 3 without the button in key 113 → upgrade to test build → launch | Mode button shown with defaults | shown (passes) |
 | F save on leaving editor | Remove (or move) the Mode button → leave the layout editor with Back → **immediately** `adb pull` the config and check it with `python3 tests/duo_mode_button/tools/neocfg.py decode <config>` (Mode button already removed/moved in key `113`) → `adb shell am force-stop <pkg>` (do not go through the main menu / exit) → relaunch → `adb pull` again and `neocfg.py diff <before> <after>` | change is kept (config written when leaving the editor, before the kill, not only on app exit) | change lost |
 
-F is manual only: `TouchConfigView` is a GUI View and cannot be built on host. If the fix adds a callable seam
+F is automated on host for trees with `onLayoutEditorClosed()` (PR #2); still run the manual step on device. Earlier note: `TouchConfigView` is a GUI View and cannot be built on host. If the fix adds a callable seam
 (e.g. `VController::onLayoutEditorClosed()` / a `saveConfigNow` hook), an automated case can be added.
 
 ## Not fixed this round — notes only (do NOT fail the PR on these)

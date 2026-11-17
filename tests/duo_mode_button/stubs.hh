@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <ranges>
 #include <span>
@@ -116,7 +117,9 @@ struct ConfigBlob
 		if(rd + sizeof(T) > bytes.size()) throw std::runtime_error("config read past end");
 		std::memcpy(&v, bytes.data() + rd, sizeof(T)); rd += sizeof(T);
 	}
-	size_t size() const { return bytes.size() - rd; }
+	// Like Imagine MapIO on a per-key subView: size() = whole payload, tell() = read offset.
+	size_t size() const { return bytes.size(); }
+	long tell() const { return long(rd); }
 };
 using FileIO = ConfigBlob;
 using MapIO = ConfigBlob;
@@ -130,6 +133,10 @@ struct EmuApp
 	InputManager inputManager;
 	struct ViewController { void placeEmuViews() {} } viewController_;
 	int asset(AssetID) const { return 0; }
+	// SIMULATED EmuApp::saveConfigFile: the test installs a hook that serialises the controller.
+	std::function<void()> onSaveConfigFile;
+	int saveConfigFileCalls{};
+	void saveConfigFile(int /*ApplicationContext*/) { saveConfigFileCalls++; if(onSaveConfigFile) onSaveConfigFile(); }
 	ViewController &viewController() { return viewController_; }
 };
 struct Window {};

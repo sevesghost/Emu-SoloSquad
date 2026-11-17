@@ -12,19 +12,39 @@ import sys, pathlib
 root = pathlib.Path(sys.argv[1]); out = pathlib.Path(sys.argv[2])
 VC  = 'EmuFramework/src/vcontrols/VController.cc'
 VCD = 'EmuFramework/src/vcontrols/VControllerDuo.cc'
+# (file, start-text, kind, required). Optional specs are emitted only if present
+# (e.g. symbols added by PR #2) and each found optional spec defines HAVE_<name>
+# in gen/features.h so the harness adapts without hardcoding a version.
 SPECS = [
-	(VC,  'static bool readVControllerElement(', 'func'),
-	(VC,  'static bool readDuoExtra(', 'func'),
-	(VC,  'static void writeToConfig(const VControllerElement', 'func'),
-	(VC,  'static size_t configDataSizeBytes(', 'func'),
-	(VC,  'void VController::writeUIButtonsConfig(', 'func'),
-	(VC,  'void VController::configure(', 'func'),
-	(VC,  'void VController::resetUIGroups()', 'func'),
-	(VCD, 'void VController::setDuoPosition(', 'func'),
-	(VCD, 'void VController::syncDuoModeButton()', 'func'),
-	(VCD, 'void VController::setTwoPlayerControls(', 'func'),
-	(VCD, 'void VController::setDuoLayout(', 'func'),
-	(VC,  'case CFGKEY_VCONTROLLER_UI_BUTTONS_V2:', 'case'),
+	(VCD, 'static bool isDuoModeKey(', 'func', False, 'IS_DUO_MODE_KEY'),
+	(VC,  'constexpr size_t uiButtonDuoExtraBytes', 'stmt', False, 'UI_DUO_EXTRA_BYTES'),
+	(VC,  'static bool readVControllerElement(', 'func', True, None),
+	(VC,  'static bool readDuoExtra(', 'func', True, None),
+	(VC,  'static void writeDuoExtra(', 'func', False, 'WRITE_DUO_EXTRA'),
+	(VC,  'static void writeToConfig(const VControllerElement', 'func', True, None),
+	(VC,  'static size_t configDataSizeBytes(', 'func', True, None),
+	(VC,  'void VController::writeUIButtonsConfig(', 'func', True, None),
+	(VC,  'void VController::configure(', 'func', True, None),
+	(VC,  'void VController::resetUIGroups()', 'func', True, None),
+	(VC,  'bool VController::remove(VControllerElement', 'func', True, None),
+	(VCD, 'void VController::setDuoPosition(', 'func', True, None),
+	(VCD, 'bool VController::uiElementIsDuoModeButton(', 'func', False, 'UI_ELEMENT_IS_DUO_MODE_BUTTON'),
+	(VCD, 'void VController::noteUIButtonRemoved(', 'func', False, 'NOTE_UI_BUTTON_REMOVED'),
+	(VCD, 'void VController::noteUIButtonAdded(', 'func', False, 'NOTE_UI_BUTTON_ADDED'),
+	(VCD, 'void VController::onLayoutEditorClosed()', 'func', False, 'ON_LAYOUT_EDITOR_CLOSED'),
+	(VCD, 'void VController::ensureDuoModeButton(', 'func', False, 'ENSURE_DUO_MODE_BUTTON'),
+	(VCD, 'void VController::syncDuoModeButton()', 'func', True, None),
+	(VCD, 'void VController::setTwoPlayerControls(', 'func', True, None),
+	(VCD, 'void VController::setDuoLayout(', 'func', True, None),
+	(VC,  'case CFGKEY_VCONTROLLER_UI_BUTTONS_V2:', 'case', True, None),
+]
+# Plain text probes (source wiring, not compiled): define HAVE_<name> if found.
+PROBES = [
+	('EmuFramework/include/emuframework/VController.hh', 'duoModeButtonRemoved_', 'DUO_REMOVED_FLAG'),
+	('EmuFramework/include/emuframework/DuoModeButton.hh', 'decideDuoModeButton', 'DUO_MODE_BUTTON_HH'),
+	('imagine/include/imagine/gui/View.hh', 'virtual void onDismiss()', 'VIRTUAL_ON_DISMISS'),
+	('EmuFramework/src/gui/TouchConfigView.cc', 'void TouchConfigView::onDismiss()\n{\n\tvController.onLayoutEditorClosed();', 'TOUCHCONFIG_DISMISS_SAVES'),
+	('EmuFramework/src/gui/PlaceVControlsView.cc', 'void PlaceVControlsView::onDismiss()\n{\n\tvController.onLayoutEditorClosed();', 'PLACEVCONTROLS_DISMISS_SAVES'),
 ]
 def block(text, start):
 	i = text.find('{', start); depth = 0
@@ -34,16 +54,27 @@ def block(text, start):
 			depth -= 1
 			if depth == 0: return text[start:j+1]
 	raise SystemExit('unbalanced braces after ' + repr(text[start:start+60]))
-parts = []
-for f, pat, kind in SPECS:
+parts = []; feats = []
+for f, pat, kind, required, feat in SPECS:
 	text = (root / f).read_text()
 	idx = text.find(pat)
-	if idx < 0: raise SystemExit(f'extract.py: "{pat}" not found in {f} -- update SPECS')
-	body = block(text, idx)
+	if idx < 0:
+		if required: raise SystemExit(f'extract.py: "{pat}" not found in {f} -- update SPECS')
+		continue
+	if kind == 'stmt': body = text[idx:text.index(';', idx)+1]
+	else: body = block(text, idx)
 	line = text.count('\n', 0, idx) + 1
 	if kind == 'case':
 		body = ('bool VController::readUIButtonsConfigCase(EmuApp &app, MapIO &io)\n{\n'
 			'\tswitch(CFGKEY_VCONTROLLER_UI_BUTTONS_V2)\n\t{\n' + body + '\n\t}\n\treturn false;\n}')
+	if feat: feats.append(feat)
 	parts.append(f'// ---- REAL CODE from {f}:{line} ----\n#line {line} "{f}"\n{body}\n')
+for f, pat, feat in PROBES:
+	pth = root / f
+	if pth.exists() and pat in pth.read_text(): feats.append(feat)
+hdr = '#pragma once\n' + ''.join(f'#define HAVE_{x} 1\n' for x in feats)
+if 'DUO_MODE_BUTTON_HH' in feats:
+	hdr += '#include "' + str(root / 'EmuFramework/include/emuframework/DuoModeButton.hh') + '" // REAL header\n'
+(out.parent / 'features.h').write_text(hdr)
 out.write_text('\n'.join(parts))
-print(f'extracted {len(parts)} real code blocks -> {out}')
+print(f'extracted {len(parts)} real code blocks -> {out}; features: {" ".join(feats) or "(none: master)"}')

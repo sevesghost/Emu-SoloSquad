@@ -23,3 +23,19 @@ Helpers for new cases: makeDefaultController, launch, findDuoButton, countDuoBut
 removeDuoButton, addDuoButtonBack, setDuoButtonPosMM, setDuoButtonState, saveUIButtons,
 loadAndConfigure, relaunch, oldConfigBlobWithoutDuoButton, defaultDuoButton, resetUI,
 setTwoPlayer, toggleJointSeparate. Register a case by adding a line to CASES.
+
+## Version detection (PR #2 and later)
+extract.py also extracts OPTIONAL symbols when present (isDuoModeKey, uiButtonDuoExtraBytes,
+writeDuoExtra, uiElementIsDuoModeButton, noteUIButtonRemoved/Added, onLayoutEditorClosed,
+ensureDuoModeButton) and VController::remove (both trees), probes the source for
+duoModeButtonRemoved_, DuoModeButton.hh (included as the REAL header), virtual View::onDismiss and
+the TouchConfigView/PlaceVControlsView onDismiss -> onLayoutEditorClosed wiring, and writes
+`gen/features.h` with HAVE_* defines. The same test files build on master and on PR #2.
+
+- removeDuoButton / removeAllUIButtons go through the real VController::remove().
+- addDuoButtonBack calls the real noteUIButtonAdded() when it exists (TouchConfigView does).
+- oldConfigBlobWithoutDuoButton strips the PR #2 trailer (u8 removed + 5 bytes/element).
+- loadAndConfigure passes only the key-113 payload (like the real per-key subView) and fails
+  if readConfig leaves bytes unread.
+- F runs only when onLayoutEditorClosed() exists: "kill" after leaving the editor and reload
+  from what saveConfigFile wrote. Otherwise SKIP (manual step F).

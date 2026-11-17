@@ -446,6 +446,7 @@ class VBlock:
     elements: list[Element] = field(default_factory=list)
     trailing: bytes = b""
     trailing_note: str = ""
+    removed_flag: Optional[int] = None  # PR #2 trailer: uint8 duoModeButtonRemoved_
 
 
 @dataclass
@@ -591,6 +592,13 @@ def read_elements_tolerant(
         elems, rest = try_read_elements(payload_at_elements, count, is_ui, prefer_duo_extra)
         if not rest:
             return elems, rest, note
+        # PR #2 format: uint8 removed flag, then 5 bytes per element
+        if not prefer_duo_extra and len(rest) == 1 + 5 * count and all(e.duo_extra is None for e in elems):
+            rr = Reader(rest)
+            flag = rr.get("<B")
+            for e in elems:
+                e.duo_extra = DuoExtra.unpack(rr)
+            return elems, bytes([flag]), "PR2_TRAILER"
         # leftover: maybe extras were stored at the end of the block (5 bytes * N)
         if not prefer_duo_extra and len(rest) == 5 * count and all(e.duo_extra is None for e in elems):
             rr = Reader(rest)
@@ -636,6 +644,31 @@ def write_block(key: int, payload: bytes) -> bytes:
     if size > 0xFFFF:
         raise ValueError(f"block {key} too large: {size}")
     return struct.pack("<HH", size, key) + payload
+
+
+def add_pr2_trailer(data: bytes, removed: int, size_mm100x: int = 900) -> bytes:
+    """Append the PR #2 trailer to block 113: uint8 removed, then per element
+    int16 sizeMM100x, uint8 ownAlpha, uint8 duoFlags, uint8 duoRole.
+    The toggle group gets DUO_POS_MM and size_mm100x; others get zeros."""
+    out = bytearray(data[:1])
+    off = 1
+    while off + 2 <= len(data):
+        size = struct.unpack_from("<H", data, off)[0]
+        key = struct.unpack_from("<H", data, off + 2)[0]
+        payload = data[off + 4: off + 2 + size]
+        if key == CFGKEY_VCONTROLLER_UI_BUTTONS_V2:
+            blk = parse_ui_v2(payload)
+            tr = Writer()
+            tr.put("<B", removed)
+            for e in blk.elements:
+                if find_toggle([e]) is not None:
+                    tr.put("<hBBB", size_mm100x, 0, 1, 0)
+                else:
+                    tr.put("<hBBB", 0, 0, 0, 0)
+            payload = payload + tr.bytes()
+        out += write_block(key, payload)
+        off += 2 + size
+    return bytes(out)
 
 
 def write_ui_v2(elements: list[Element]) -> bytes:
@@ -735,6 +768,10 @@ def parse_ui_v2(payload: bytes) -> VBlock:
     # If count said N but we got fewer, still keep what we have
     if len(elems) < count and not note:
         note = f"declared {count} element(s), parsed {len(elems)}"
+    if note == "PR2_TRAILER":
+        block.removed_flag = rest[0]
+        rest = b""
+        note = f"PR #2 trailer: duoModeButtonRemoved={block.removed_flag}, per-element duo extras read"
     block.elements = elems
     block.trailing = rest
     block.trailing_note = note
@@ -1483,6 +1520,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     m = sub.add_parser("make", help="write a synthetic config matching the C++ writer")
     m.add_argument("out", type=Path)
+    m.add_argument("--pr2-removed", type=int, choices=[0, 1], default=None,
+                   help="write the PR #2 format: 113 trailer with duoModeButtonRemoved flag + per-element duo extras")
     m.add_argument("--no-duo-toggle", action="store_true", help="omit the toggleDuoLayout UI group (removed-button case)")
     m.add_argument("--duo-toggle-state", type=int, metavar="N", choices=(0, 1, 2), help="VControllerState for the toggle group: 0=OFF 1=SHOWN 2=HIDDEN")
     m.add_argument("--duo-toggle-moved", action="store_true", help="give the toggle group custom landscape/portrait positions (and default state HIDDEN unless --duo-toggle-state is set)")
@@ -1518,6 +1557,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             v1_only=args.v1_only,
             no_113=args.no_113,
         )
+        if args.pr2_removed is not None:
+            data = add_pr2_trailer(data, args.pr2_removed)
         write_config(args.out, data)
         print(f"wrote {args.out} ({len(data)} bytes)")
         return 0
