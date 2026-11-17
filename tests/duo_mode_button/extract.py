@@ -72,6 +72,17 @@ for f, pat, kind, required, feat in SPECS:
 for f, pat, feat in PROBES:
 	pth = root / f
 	if pth.exists() and pat in pth.read_text(): feats.append(feat)
+# Mirror the REAL access level of EmuApp::saveConfigFile(ApplicationContext): find the declaration in
+# EmuApp.hh and the nearest preceding access specifier. stubs.hh uses it, so code calling a protected
+# saveConfigFile fails to compile here exactly like the Android -Werror build.
+import re as _re
+_emu = (root / 'EmuFramework/include/emuframework/EmuApp.hh').read_text()
+# Both overloads are probed: (ApplicationContext) -> HAVE_SAVE_CONFIG_FILE_PUBLIC, (FileIO &) -> HAVE_SAVE_CONFIG_FILE_FILEIO_PUBLIC.
+for _sig, _feat in ((r'ApplicationContext', 'SAVE_CONFIG_FILE_PUBLIC'), (r'FileIO\s*&', 'SAVE_CONFIG_FILE_FILEIO_PUBLIC')):
+	_m = _re.search(r'void\s+saveConfigFile\s*\(\s*' + _sig + r'[^)]*\)\s*;', _emu)
+	if not _m: sys.exit(f'extract.py: saveConfigFile({_sig}) not found in EmuApp.hh')
+	_acc = _re.findall(r'^\s*(public|protected|private)\s*:', _emu[:_m.start()], _re.M)
+	if _acc and _acc[-1] == 'public': feats.append(_feat)
 hdr = '#pragma once\n' + ''.join(f'#define HAVE_{x} 1\n' for x in feats)
 if 'DUO_MODE_BUTTON_HH' in feats:
 	hdr += '#include "' + str(root / 'EmuFramework/include/emuframework/DuoModeButton.hh') + '" // REAL header\n'

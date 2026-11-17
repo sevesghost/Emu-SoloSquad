@@ -36,19 +36,26 @@ struct _2DOrigin
 	static constexpr _2DOrigin unpack(PackedType p) { return {p}; }
 	constexpr bool operator==(const _2DOrigin &) const = default;
 };
-constexpr _2DOrigin LT2DO{1}, CT2DO{2}, RT2DO{3}, LC2DO{4}, C2DO{5}, RC2DO{6}, LB2DO{7}, CB2DO{8}, RB2DO{9};
+// packed values = real _2DOrigin::pack() (x in low nibble, y in high nibble) so dumps decode with neocfg.py
+constexpr _2DOrigin LT2DO{0x21}, CT2DO{0x20}, RT2DO{0x22}, LC2DO{0x01}, C2DO{0x00}, RC2DO{0x02}, LB2DO{0x11}, CB2DO{0x10}, RB2DO{0x12};
 
-enum class AppKeyCode : uint16_t { openContent = 1, openSystemActions, fastForward, toggleFastForward, rewind, toggleDuoLayout };
+// values = real AppKeyCode.hh (KeyCode = uint8_t) so dumped key codes decode with neocfg.py
+enum class AppKeyCode : uint8_t { openMenu = 1, openContent, openSystemActions, saveState, loadState, decStateSlot, incStateSlot,
+	fastForward, toggleFastForward, slowMotion, toggleSlowMotion, takeScreenshot, turboModifier, exitApp, rewind, softReset,
+	hardReset, resetMenu, closeContent, toggleDuoLayout };
+static_assert(int(AppKeyCode::toggleDuoLayout) == 20);
 enum class AssetID { gamepadOverlay, more, menu };
 
 struct KeyInfo
 {
-	std::array<uint16_t, 3> codes{};
-	struct Flags { uint8_t appCode{}; uint8_t turbo{}; uint8_t toggle{}; constexpr bool operator==(const Flags&) const = default; } flags{};
-	static constexpr KeyInfo appKey(AppKeyCode c) { KeyInfo k; k.codes[0] = uint16_t(c); k.flags.appCode = 1; return k; }
+	// same 4-byte layout as the real inputDefs.hh KeyInfo (3 x uint8 KeyCode + 1-byte KeyFlags bitfield)
+	std::array<uint8_t, 3> codes{};
+	struct Flags { uint8_t appCode:1{}, turbo:1{}, toggle:1{}, bothPlayers:1{}, deviceId:4{}; constexpr bool operator==(const Flags&) const = default; } flags{};
+	static constexpr KeyInfo appKey(AppKeyCode c) { KeyInfo k; k.codes[0] = uint8_t(c); k.flags.appCode = 1; return k; }
 	constexpr bool operator==(const KeyInfo &) const = default;
 };
 static_assert(std::is_trivially_copyable_v<KeyInfo>);
+static_assert(sizeof(KeyInfo) == 4);
 
 enum class VControllerState : uint8_t { OFF, SHOWN, HIDDEN };
 
@@ -128,16 +135,32 @@ template<class Size, class T> void writeSizedData(FileIO &io, const std::vector<
 template<class Size, class T> void readSizedData(MapIO &io, std::vector<T> &v) { auto n = io.get<Size>(); v.resize(n); for(auto &e : v) io.read(e); }
 
 struct InputManager {};
-struct EmuApp
+// Access levels mirror EmuFramework/include/emuframework/EmuApp.hh: inputManager, asset(),
+// viewController() are public; saveConfigFile(ApplicationContext) follows the real header (protected on
+// master/5d49d12 ~line 466, public from PR #2 7329d57), so a call from VController fails to compile
+// here exactly when it would on Android.
+class EmuApp
 {
+public:
 	InputManager inputManager;
 	struct ViewController { void placeEmuViews() {} } viewController_;
 	int asset(AssetID) const { return 0; }
-	// SIMULATED EmuApp::saveConfigFile: the test installs a hook that serialises the controller.
+	ViewController &viewController() { return viewController_; }
+	// test-only: observe saves
 	std::function<void()> onSaveConfigFile;
 	int saveConfigFileCalls{};
+#ifndef HAVE_SAVE_CONFIG_FILE_PUBLIC
+protected: // real EmuApp.hh declares saveConfigFile(ApplicationContext) under protected: (probed by extract.py)
+#endif
+	// SIMULATED EmuApp::saveConfigFile: runs the test's hook that serialises the controller.
 	void saveConfigFile(int /*ApplicationContext*/) { saveConfigFileCalls++; if(onSaveConfigFile) onSaveConfigFile(); }
-	ViewController &viewController() { return viewController_; }
+#ifdef HAVE_SAVE_CONFIG_FILE_FILEIO_PUBLIC
+public:
+#else
+protected: // real FileIO overload (protected in every tree so far)
+#endif
+	struct FileIO;
+	void saveConfigFile(FileIO &) {}
 };
 struct Window {};
 namespace Gfx

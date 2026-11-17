@@ -387,6 +387,8 @@ class DuoExtra:
             bits.append("DUO_FIXED_PLAYER")
         if flags & 4:
             bits.append("DUO_OWN_ALPHA")
+        if flags & 0x80:
+            bits.append("MODE_REMOVED(bit7)")
         player = (flags >> 3) & 3
         if flags & (3 << 3):
             bits.append(f"playerSet={player}")
@@ -604,7 +606,9 @@ def read_elements_tolerant(
             rr = Reader(rest)
             for e in elems:
                 e.duo_extra = DuoExtra.unpack(rr)
-            return elems, b"", "interpreted leftover 5*N bytes as per-element duo extras (appended at end of block)"
+            nrem = sum(1 for e in elems if e.duo_extra.duo_flags & 0x80)
+            return elems, b"", ("PR #2 (5d49d12+) trailer: per-element duo extras read; "
+                                f"Mode-removed bit 7 set on {nrem}/{len(elems)} element(s)")
         return elems, rest, note
     except DecodeError as first_err:
         first = first_err
@@ -659,12 +663,15 @@ def add_pr2_trailer(data: bytes, removed: int, size_mm100x: int = 900) -> bytes:
         if key == CFGKEY_VCONTROLLER_UI_BUTTONS_V2:
             blk = parse_ui_v2(payload)
             tr = Writer()
-            tr.put("<B", removed)
+            new_fmt = removed >= 2
+            if not new_fmt:
+                tr.put("<B", removed)
+            bit7 = 0x80 if removed == 3 else 0
             for e in blk.elements:
                 if find_toggle([e]) is not None:
                     tr.put("<hBBB", size_mm100x, 0, 1, 0)
                 else:
-                    tr.put("<hBBB", 0, 0, 0, 0)
+                    tr.put("<hBBB", 0, 0, bit7, 0)
             payload = payload + tr.bytes()
         out += write_block(key, payload)
         off += 2 + size
@@ -1520,8 +1527,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     m = sub.add_parser("make", help="write a synthetic config matching the C++ writer")
     m.add_argument("out", type=Path)
-    m.add_argument("--pr2-removed", type=int, choices=[0, 1], default=None,
-                   help="write the PR #2 format: 113 trailer with duoModeButtonRemoved flag + per-element duo extras")
+    m.add_argument("--pr2-removed", type=int, choices=[0, 1, 2, 3], default=None,
+                   help="PR #2 trailer. 0/1 = first commit 859feff (removed byte + 5*N). 2 = 5d49d12+ (5*N only, bit 7 clear). 3 = 5d49d12+ with Mode-removed bit 7 on every other element")
     m.add_argument("--no-duo-toggle", action="store_true", help="omit the toggleDuoLayout UI group (removed-button case)")
     m.add_argument("--duo-toggle-state", type=int, metavar="N", choices=(0, 1, 2), help="VControllerState for the toggle group: 0=OFF 1=SHOWN 2=HIDDEN")
     m.add_argument("--duo-toggle-moved", action="store_true", help="give the toggle group custom landscape/portrait positions (and default state HIDDEN unless --duo-toggle-state is set)")

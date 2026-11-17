@@ -39,3 +39,26 @@ the TouchConfigView/PlaceVControlsView onDismiss -> onLayoutEditorClosed wiring,
   if readConfig leaves bytes unread.
 - F runs only when onLayoutEditorClosed() exists: "kill" after leaving the editor and reload
   from what saveConfigFile wrote. Otherwise SKIP (manual step F).
+
+## p5 additions
+
+- **Case I (known issue):** remove all UI buttons -> relaunch -> add a non-Mode UI group -> relaunch; the
+  Mode button must stay removed. On PR #2 (bit 7 of `duoFlags` needs a remaining UI button to live on) it
+  comes back, so I is marked known issue: printed as `XFAIL` (or `XPASS` once fixed) on its own summary
+  line (`known issues (not counted): N xfail, N xpass`) and never changes the exit code. A–H are unchanged.
+- **`DUO_DUMP_DIR=<dir>`:** every key-113 save made with the real `writeUIButtonsConfig` is written as a
+  full config file (`0x02` header + the 113 block) that `tools/neocfg.py decode` reads:
+  `<case>-NN.cfg` per save, `<case>-before.cfg` = first save, `<case>-after.cfg` = last save (after
+  reload + save again). Relative dirs are from the caller's cwd, e.g.
+  `DUO_DUMP_DIR=tests/duo_mode_button/build/dumps tests/duo_mode_button/run.sh`
+  then `python3 tests/duo_mode_button/tools/neocfg.py decode tests/duo_mode_button/build/dumps/A-after.cfg`.
+  Note: in the harness's fresh install the Mode button is the only UI group, so after removing it the
+  saved layout has 0 elements and no `MODE_REMOVED(bit7)` carrier appears (A/G/H/I-before all 0 elements).
+- **Stub fidelity:** `KeyInfo` (4 bytes), `AppKeyCode` values and `_2DOrigin::pack()` values match the
+  real headers so dumps are byte-compatible. `EmuApp::saveConfigFile` access mirrors the real
+  `EmuApp.hh` of the tree under test (both overloads; `extract.py` reads the nearest access specifier ->
+  `HAVE_SAVE_CONFIG_FILE_PUBLIC` / `HAVE_SAVE_CONFIG_FILE_FILEIO_PUBLIC`). So 5d49d12 fails to compile with
+  `VControllerDuo.cc:238: 'saveConfigFile' is a protected member`, like the Android build; 7329d57 builds.
+- **Flags:** `-std=c++23 -O0 -g -Wall -Werror -Wno-unused` (`-Werror` like the project; quiet on all trees).
+- **tools/:** `neocfg.py` from teammate 3 (PR #2 5d49d12 format, `MODE_REMOVED(bit7)`), samples in
+  `tools/samples-pr2b/`.

@@ -12,9 +12,10 @@
 // Adding a case: write `static void caseX(Ctx &t)` using the helpers, then add one line
 // to CASES at the bottom. Use t.check(cond, "msg"). Return early after a failed check
 // if later steps would crash.
-#include "stubs.hh"
 #include "gen/features.h" // HAVE_* flags from extract.py (which symbols this source tree has)
+#include "stubs.hh"
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <string>
 
@@ -152,7 +153,30 @@ inline void setDuoButtonPosMM(VController &vc, VControllerElement &e, int layout
 inline void setDuoButtonState(VControllerElement &e, VControllerState s) { e.state = s; }
 
 // Save UI buttons with the REAL writeUIButtonsConfig. Blob layout: u16 size, u16 key, payload.
-inline ConfigBlob saveUIButtons(const VController &vc) { ConfigBlob b; vc.writeUIButtonsConfig(b); return b; }
+inline const char *currentCaseId = "x"; // set by main() to the case letter; used for dump names
+inline int dumpSeq = 0;
+// DUO_DUMP_DIR=<dir>: write every saved key-113 block as a neocfg.py-readable config file
+// (u8 header=2, then the block): <case>-NN.cfg for each save, <case>-before.cfg = first save
+// (before closing the app), <case>-after.cfg = last save (after reload + save again).
+// Only the dump's size field is recomputed from the real byte count, because stubs.hh element
+// sizes are not the real ones; the blobs used by the tests are unchanged.
+inline void dumpUIButtons(const ConfigBlob &b)
+{
+	const char *dir = std::getenv("DUO_DUMP_DIR");
+	if(!dir || !*dir || b.bytes.size() < 4) return;
+	auto out = b.bytes;
+	uint16_t sz = uint16_t(out.size() - 2);
+	std::memcpy(out.data(), &sz, 2);
+	auto write = [&](const std::string &tag)
+	{
+		auto name = std::string(dir) + "/" + currentCaseId + "-" + tag + ".cfg";
+		if(auto *f = std::fopen(name.c_str(), "wb")) { std::fputc(2, f); std::fwrite(out.data(), 1, out.size(), f); std::fclose(f); }
+	};
+	char seq[8]; std::snprintf(seq, sizeof(seq), "%02d", ++dumpSeq);
+	write(seq);
+	write(dumpSeq == 1 ? "before" : "after");
+}
+inline ConfigBlob saveUIButtons(const VController &vc) { ConfigBlob b; vc.writeUIButtonsConfig(b); dumpUIButtons(b); return b; }
 
 // Load a blob produced by saveUIButtons into a NEW controller (real readConfig case) and launch it.
 // Pass an empty blob to simulate a config file with no key 113 at all.
@@ -223,7 +247,8 @@ struct Ctx
 	bool check(bool ok, std::string msg) { if(!ok) failures.push_back(std::move(msg)); return ok; }
 };
 struct Skip { std::string why; };
-struct Case { const char *name; std::function<void(Ctx&)> fn; };
+// knownIssue: expected failure. Failing -> XFAIL, passing -> XPASS; neither changes the exit code.
+struct Case { const char *name; std::function<void(Ctx&)> fn; bool knownIssue = false; };
 
 // ============================== cases ==============================
 
@@ -408,6 +433,31 @@ static void caseH_allUIButtonsRemoved(Ctx &t)
 	t.check(vc3.uiElements.empty(), "after 2nd relaunch: UI elements reappeared");
 }
 
+// I (KNOWN ISSUE on PR #2 5d49d12): remove every UI button including Mode via the real
+// remove(), relaunch, then add a NON-Mode UI button group back (TouchConfigView
+// "Add New Button Group"), save, relaunch -> Mode button must still stay removed.
+// 5d49d12 keeps the "removed" state as bit 7 of duoFlags on the remaining UI buttons,
+// so when none remain the state has nowhere to live.
+static void caseI_readdNonModeAfterRemovingAll(Ctx &t)
+{
+	auto vc = makeDefaultController();
+	removeAllUIButtons(vc);
+	if(!t.check(vc.uiElements.empty(), "removeAllUIButtons left elements")) return;
+	vc = relaunch(vc);
+	if(!t.check(countDuoButtons(vc) == 0, "after removing all + relaunch: Duo button already back (count=" + std::to_string(countDuoButtons(vc)) + ")")) return;
+	// SIMULATED VController::add(rightUIComponents): a new Open Menu group
+	auto &e = vc.uiElements.emplace_back(std::in_place_type<VControllerUIButtonGroup>,
+		VControllerUIButtonGroup::Config{{KeyInfo::appKey(AppKeyCode::openSystemActions)}, {1, RT2DO}});
+	e.layoutPos[0] = e.layoutPos[1] = {RT2DO, {0, 0}};
+#ifdef HAVE_NOTE_UI_BUTTON_ADDED
+	vc.noteUIButtonAdded(KeyInfo::appKey(AppKeyCode::openSystemActions));
+#endif
+	auto vc2 = relaunch(vc);
+	t.check(countDuoButtons(vc2) == 0, "after re-adding a non-Mode UI group + relaunch: Duo button came back (count=" + std::to_string(countDuoButtons(vc2)) + ")");
+	auto vc3 = relaunch(vc2);
+	t.check(countDuoButtons(vc3) == 0, "after 2nd relaunch: Duo button came back");
+}
+
 static const std::vector<Case> CASES
 {
 	{"A remove -> relaunch -> stays removed", caseA_removeThenRelaunch},
@@ -418,6 +468,7 @@ static const std::vector<Case> CASES
 	{"F leave layout editor -> config saved now", caseF_saveOnLeavingEditor},
 	{"G remove -> Joint/Separate -> relaunch -> stays removed", caseG_removeToggleLayoutRelaunch},
 	{"H remove all UI buttons -> relaunch -> no crash", caseH_allUIButtonsRemoved},
+	{"I remove all -> relaunch -> add non-Mode group -> relaunch -> Mode stays removed [known issue]", caseI_readdNonModeAfterRemovingAll, true},
 	// edge cases go here
 };
 
@@ -426,21 +477,24 @@ static const std::vector<Case> CASES
 int main(int argc, char **argv)
 {
 	using namespace EmuEx;
-	int pass = 0, fail = 0, skip = 0;
+	int pass = 0, fail = 0, skip = 0, xfail = 0, xpass = 0;
 	for(auto &c : CASES)
 	{
 		if(argc > 1 && std::string(c.name).find(argv[1]) == std::string::npos) continue;
+		std::string id(c.name, 1);
+		currentCaseId = id.c_str();
+		dumpSeq = 0;
 		Ctx t;
 		try { c.fn(t); }
 		catch(Skip &s) { std::printf("SKIP  %s  (%s)\n", c.name, s.why.c_str()); skip++; continue; }
 		catch(std::exception &e) { t.failures.push_back(std::string("exception: ") + e.what()); }
-		if(t.failures.empty()) { std::printf("PASS  %s\n", c.name); pass++; }
-		else
-		{
-			std::printf("FAIL  %s\n", c.name); fail++;
-			for(auto &f : t.failures) std::printf("        - %s\n", f.c_str());
-		}
+		const char *tag = t.failures.empty() ? (c.knownIssue ? "XPASS" : "PASS ") : (c.knownIssue ? "XFAIL" : "FAIL ");
+		std::printf("%s %s\n", tag, c.name);
+		for(auto &f : t.failures) std::printf("        - %s\n", f.c_str());
+		if(c.knownIssue) (t.failures.empty() ? xpass : xfail)++;
+		else (t.failures.empty() ? pass : fail)++;
 	}
 	std::printf("\n%d passed, %d failed, %d skipped\n", pass, fail, skip);
+	std::printf("known issues (not counted): %d xfail, %d xpass\n", xfail, xpass);
 	return fail ? 1 : 0;
 }
