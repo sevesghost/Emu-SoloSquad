@@ -58,11 +58,13 @@ function(generateConfigHeader target)
 	set(genDir "${CMAKE_BINARY_DIR}/gen")
 	set(configFilePath "${genDir}/${configFilename}")
 	message("Config Header: ${configFilePath}")
+	# Multiple COMMANDs in one execute_process run together as a pipeline, so
+	# mkdir raced the writer and android-x86 configure lost (gen/ missing).
+	file(MAKE_DIRECTORY "${genDir}")
 	execute_process(
-		COMMAND mkdir -p ${genDir}
 		COMMAND bash ${IMAGINE_PATH}/make/writeConfig.sh "${configFilePath}" "${configEnable}" "${configDisable}" "${configInc}" "${configDefs}"
 		COMMAND_ERROR_IS_FATAL ANY
-	)	
+	)
 	target_include_directories(${target} PRIVATE ${genDir})
 	install(FILES "${configFilePath}" DESTINATION include)
 endFunction()
