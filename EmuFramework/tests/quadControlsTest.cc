@@ -159,7 +159,9 @@ int main()
 
 	expect(syncModeButton(4, true, false) == ModeSync::Keep, "removed mode stays gone at 4 players");
 	expect(syncModeButton(2, true, false) == ModeSync::Keep, "removed mode stays gone at 2 players");
-	expect(syncModeButton(1, true, true) == ModeSync::Erase, "single player hides the mode button");
+	expect(syncModeButton(1, false, false) == ModeSync::Create, "1 player still shows the mode button");
+	expect(syncModeButton(1, true, false) == ModeSync::Keep, "a removed mode button stays hidden at 1 player");
+	expect(syncModeButton(1, true, true) == ModeSync::Erase, "a stale mode button is dropped when removal was saved");
 	expect(removalSurvivesPlayerCountChange(true), "changing 2 -> 1 -> 4 keeps the removal");
 	bool removed = true;
 	int count = 2;

@@ -196,15 +196,13 @@ constexpr uint8_t playersNeedingDefaults(int playerCount, uint8_t presentMask, u
 
 enum class ModeSync : uint8_t { Keep, Create, Erase };
 
-// playerCount 1 hides the button without forgetting a removal. 2 and 4 keep
-// a removed button gone and do not clear the removal flag.
-constexpr ModeSync syncModeButton(int playerCount, bool userRemoved, bool present) noexcept
+// Show the Mode button at 1, 2, and 4 players. A saved removal (bit 7)
+// keeps it hidden and is not cleared by the player count.
+constexpr ModeSync syncModeButton(int, bool userRemoved, bool present) noexcept
 {
-	if(playerCount <= 1)
+	if(userRemoved)
 		return present ? ModeSync::Erase : ModeSync::Keep;
-	if(present || userRemoved)
-		return ModeSync::Keep;
-	return ModeSync::Create;
+	return present ? ModeSync::Keep : ModeSync::Create;
 }
 
 constexpr bool removalSurvivesPlayerCountChange(bool removed) noexcept
