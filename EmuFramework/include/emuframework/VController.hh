@@ -787,6 +787,7 @@ private:
 	bool showSharedRow_{};
 	bool duoCustomized_{};
 	bool duoV3Loaded_{};
+	bool duoV3ElementsLoaded_{};
 	std::array<int16_t, 4> playerSize_{1000, 1000, 1000, 1000};
 	int16_t sharedSize_{1000};
 	std::array<uint8_t, 4> playerAlpha_{uint8_t(255 * .5f), uint8_t(255 * .5f), uint8_t(255 * .5f), uint8_t(255 * .5f)};

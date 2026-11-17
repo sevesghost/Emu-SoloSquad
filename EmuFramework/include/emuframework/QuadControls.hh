@@ -127,6 +127,12 @@ constexpr bool shouldLayoutPlayer(int playerIndex, uint8_t onlyPlayers) noexcept
 	return (onlyPlayers & uint8_t(1u << playerIndex)) != 0;
 }
 
+// 1-player mode still saves every set and empty-set marker.
+constexpr bool persistDuoElements(int) noexcept
+{
+	return true;
+}
+
 constexpr uint8_t duoHeaderFlags(bool multi, bool sharedRow, bool custom, bool modeRemoved) noexcept
 {
 	return uint8_t((multi ? kDuoFlagMulti : 0)
