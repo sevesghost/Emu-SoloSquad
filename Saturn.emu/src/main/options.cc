@@ -42,6 +42,7 @@ void SaturnSystem::onSessionOptionsLoaded(EmuApp &app)
 bool SaturnSystem::resetSessionOptions(EmuApp &app)
 {
 	inputConfig = {};
+	port1MultitapAuto = false;
 	cartType = MDFN_IEN_SS::CART__RESERVED;
 	region = {};
 	sysContentRotation = Rotation::ANY;

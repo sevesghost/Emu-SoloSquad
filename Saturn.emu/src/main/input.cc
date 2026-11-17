@@ -100,6 +100,17 @@ static const char *toString(InputDeviceType dev)
 
 void SaturnSystem::enablePort1Multitap(bool enabled)
 {
+	if(enabled)
+	{
+		if(!inputConfig.multitaps[0])
+			port1MultitapAuto = true;
+	}
+	else
+	{
+		if(!port1MultitapAuto)
+			return; // user turned it on, leave it alone
+		port1MultitapAuto = false;
+	}
 	inputConfig.multitaps[0] = enabled;
 	if(enabled)
 	{

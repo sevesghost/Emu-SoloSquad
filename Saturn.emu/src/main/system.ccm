@@ -160,7 +160,10 @@ public:
 	void applyInputConfig(EmuApp& app) { applyInputConfig(inputConfig, app); }
 	// Four on-screen players need the first controller port's multitap.
 	// That port cannot stay a light gun.
+	// Turning it off only undoes what turning it on did: a multitap the user
+	// enabled from the menu stays on when going back to 1 or 2 players.
 	void enablePort1Multitap(bool enabled);
+	bool port1MultitapAuto{};
 	void setInputConfig(InputConfig, EmuApp&);
 	int currentDiscId() const;
 	void setDisc(int id);

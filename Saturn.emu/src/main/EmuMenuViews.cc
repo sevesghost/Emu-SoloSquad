@@ -389,6 +389,8 @@ class ConsoleOptionView : public TableView, public MainAppHelper
 			{
 				system().sessionOptionSet();
 				system().inputConfig.multitaps[idx] = item.flipBoolValue(*this);
+				if(idx == 0)
+					system().port1MultitapAuto = false;
 				system().applyInputConfig(app());
 				updateActiveDevices();
 			}
