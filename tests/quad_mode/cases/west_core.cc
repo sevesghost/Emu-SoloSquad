@@ -147,7 +147,11 @@ PerSet case_D2("D2 Reset UI Groups restores Mode and clears removed flag", [](in
 });
 PerSet case_C4("C4 delete ALL buttons of set, relaunch x2, not refilled; others intact", [](int s) {
 	freshInstall(); Snap other[numSets]; for(int o = 0; o < numSets; ++o) other[o] = snap(o);
-	for(int k : gameKeys()) removeBtn(s, k); closeLayoutEditor(); relaunch(2);
+	for(int k : gameKeys()) {
+		removeBtn(s, k);
+	}
+	closeLayoutEditor();
+	relaunch(2);
 	CHECK_MSG(count(s) == 0, S(s) + " refilled with defaults after user removed all (" + std::to_string(count(s)) + ")");
 	for(int o = 0; o < numSets; ++o) if(o != s) sameAs(o, other[o], "after another set removed all");
 	addBack(s, Start); closeLayoutEditor(); relaunch(); CHECK(exists(s, Start) && count(s) == 1);
