@@ -534,7 +534,7 @@ void VController::buildGenericQuadSets()
 	}
 }
 
-void VController::layoutGenericQuadSets()
+void VController::layoutGenericQuadSets(uint8_t onlyPlayers)
 {
 	if(!hasWindow())
 		return;
@@ -551,7 +551,7 @@ void VController::layoutGenericQuadSets()
 			if(elem.isEmptiedSetMarker())
 				continue;
 			int p = elem.playerIndex();
-			if(p < 0 || p > 3)
+			if(!shouldLayoutPlayer(p, onlyPlayers))
 				continue;
 			AnchorKind kind = AnchorKind::Face;
 			if(elem.dPad())
@@ -592,7 +592,7 @@ void VController::supplementMissingPlayers()
 		return;
 	buildGenericQuadSets();
 	if(hasWindow())
-		layoutGenericQuadSets();
+		layoutGenericQuadSets(add);
 }
 
 [[gnu::weak]] bool AppMeta::buildDuoGamepad(VController &)

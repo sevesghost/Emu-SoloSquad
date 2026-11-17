@@ -196,6 +196,9 @@ int main()
 	expect(restoredPlayerCount(false, 0, true, 12) == 2, "an old 2-player save stays 2 on a 4-player system");
 	expect(restoredPlayerCount(false, 0, false, 12) == 1, "an old 1-player save stays 1");
 	expect(restoredPlayerCount(true, 4, true, 12) == 4, "an explicit count of 4 is restored");
+	expect(!shouldLayoutPlayer(0, 0b1100) && !shouldLayoutPlayer(1, 0b1100), "adding P3/P4 does not move P1/P2");
+	expect(shouldLayoutPlayer(2, 0b1100) && shouldLayoutPlayer(3, 0b1100), "adding P3/P4 lays out only the new sets");
+	expect(shouldLayoutPlayer(0, 0) && shouldLayoutPlayer(1, 0), "a full layout still places P1 and P2");
 	expect(onScreenSetActive(0, 2) && onScreenSetActive(1, 2), "P1 and P2 stay active at 2 players");
 	expect(!onScreenSetActive(2, 2) && !onScreenSetActive(3, 2), "P3 and P4 are inactive at 2 players");
 	expect(onScreenSetActive(-1, 2), "a shared control stays active");

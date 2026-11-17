@@ -757,7 +757,7 @@ public:
 	uint8_t emptiedPlayerMask() const;
 	uint8_t presentPlayerMask() const;
 	void buildGenericQuadSets();
-	void layoutGenericQuadSets();
+	void layoutGenericQuadSets(uint8_t onlyPlayers = 0);
 	void refreshGenericQuadSizes();
 
 private:
