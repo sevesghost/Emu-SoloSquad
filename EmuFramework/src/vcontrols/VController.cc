@@ -821,8 +821,11 @@ bool VController::readConfig(EmuApp &app, MapIO &io, unsigned key)
 				modeButtonRemoved_ = true;
 			auto elements = io.get<uint8_t>();
 			duoV3Loaded_ = true;
-			if(!twoPlayer_)
+			// A 1-player save still carries every set. An older 1-player file
+			// wrote a zero count and keeps the classic V2 buttons instead.
+			if(!elements)
 				return true;
+			duoV3ElementsLoaded_ = true;
 			gpElements.clear();
 			log.info("read duo controls ({}) with {} element(s)", duoLayout_ == DuoLayout::Joint ? "joint" : "separate", elements);
 			for([[maybe_unused]] auto i : iotaCount(elements))
@@ -834,7 +837,7 @@ bool VController::readConfig(EmuApp &app, MapIO &io, unsigned key)
 		}
 		case CFGKEY_VCONTROLLER_DEVICE_BUTTONS_V2:
 		{
-			if(duoV3Loaded_ && twoPlayer_)
+			if(duoV3Loaded_ && (twoPlayer_ || duoV3ElementsLoaded_))
 				return true;
 			gpElements.clear();
 			[[maybe_unused]] auto emuDeviceId = io.get<uint8_t>(); // reserved for future use
@@ -1003,7 +1006,7 @@ void VController::writeDuoButtonsConfig(FileIO &io) const
 	bytes += sizeof(sharedSize_) + 1 + 1;
 	bytes += kQuadExtensionBytes;
 	bytes += 1; // element count
-	if(twoPlayer_)
+	if(persistDuoElements(playerControls_))
 	{
 		for(const auto &e : gpElements)
 			bytes += 1 + e.configSize() + uiButtonDuoExtraBytes;
@@ -1032,10 +1035,10 @@ void VController::writeDuoButtonsConfig(FileIO &io) const
 		playerAlpha_[2], playerAlpha_[3]});
 	for(auto byte : ext)
 		io.put(byte);
-	auto count = twoPlayer_ ? uint8_t(std::min(gpElements.size(), size_t(255))) : uint8_t(0);
+	auto count = persistDuoElements(playerControls_) ? uint8_t(std::min(gpElements.size(), size_t(255))) : uint8_t(0);
 	io.put(count);
 	log.info("wrote duo controls ({} bytes, {} elements, players:{})", bytes, count, int(playerControls_));
-	if(!twoPlayer_)
+	if(!count)
 		return;
 	for(const auto &e : gpElements)
 		writeToConfig(e, io, true);
@@ -1084,7 +1087,8 @@ void VController::writeConfig(FileIO &io) const
 		writeOptionValue(io, CFGKEY_VCONTROLLER_ALLOW_PAST_CONTENT_BOUNDS, true);
 	writeOptionValueIfNotDefault(io, CFGKEY_VCONTROLLER_HIGHLIGHT_PUSHED_BUTTONS, highlightPushedButtons, true);
 	writeDuoButtonsConfig(io);
-	if(!twoPlayer_)
+	// 1-player mode keeps its sets in the V3 block, including empty-set markers.
+	if(!twoPlayer_ && gpElements.empty())
 		writeDeviceButtonsConfig(io);
 	writeUIButtonsConfig(io);
 }

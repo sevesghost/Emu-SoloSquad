@@ -186,15 +186,11 @@ void VController::setPlayerControls(int players)
 		return;
 	int previous = playerControls_;
 	// The Mode-button removal flag is global and must survive this change.
+	// Do not rebuild the groups: positions and HIDDEN state stay put.
 	playerControls_ = int8_t(players);
 	twoPlayer_ = players > 1;
-	uint8_t keepEmptied = emptiedPlayerMask();
-	if(players <= 1 || previous <= 1)
-		resetEmulatedDeviceGroups(true);
-	else if(players > previous)
+	if(players > previous)
 		supplementMissingPlayers();
-	if(keepEmptied)
-		applyEmptiedMask(keepEmptied);
 	AppMeta::setPort1Multitap(port1MultitapRequired(players));
 	syncDuoModeButton();
 	if(hasWindow())

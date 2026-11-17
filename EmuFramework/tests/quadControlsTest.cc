@@ -199,6 +199,7 @@ int main()
 	expect(!shouldLayoutPlayer(0, 0b1100) && !shouldLayoutPlayer(1, 0b1100), "adding P3/P4 does not move P1/P2");
 	expect(shouldLayoutPlayer(2, 0b1100) && shouldLayoutPlayer(3, 0b1100), "adding P3/P4 lays out only the new sets");
 	expect(shouldLayoutPlayer(0, 0) && shouldLayoutPlayer(1, 0), "a full layout still places P1 and P2");
+	expect(persistDuoElements(1) && persistDuoElements(2) && persistDuoElements(4), "1P still saves every set and marker");
 	expect(onScreenSetActive(0, 2) && onScreenSetActive(1, 2), "P1 and P2 stay active at 2 players");
 	expect(!onScreenSetActive(2, 2) && !onScreenSetActive(3, 2), "P3 and P4 are inactive at 2 players");
 	expect(onScreenSetActive(-1, 2), "a shared control stays active");
