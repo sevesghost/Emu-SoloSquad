@@ -107,7 +107,7 @@ public:
 	bool moveFocusToNextView(const Input::Event &e, _2DOrigin direction);
 	View* parentView();
 	void setWindow(Window *w);
-	void onDismiss();
+	virtual void onDismiss();
 	void setController(ViewController *c, const Input::Event &e);
 	void setController(ViewController *c);
 	ViewController *controller() const;

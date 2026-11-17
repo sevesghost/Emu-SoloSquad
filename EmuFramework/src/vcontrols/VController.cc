@@ -14,6 +14,7 @@
 	along with EmuFramework.  If not, see <http://www.gnu.org/licenses/> */
 
 #include <imagine/config/macros.h>
+#include <imagine/time/Time.hh>
 #include <emuframework/VController.hh>
 #include <emuframework/EmuApp.hh>
 #include <emuframework/AppKeyCode.hh>
@@ -22,6 +23,9 @@
 
 namespace EmuEx
 {
+
+extern constexpr size_t uiButtonDuoExtraBytes = sizeof(int16_t) + sizeof(uint8_t) * 3;
+static_assert(uiButtonDuoExtraBytes == 5);
 
 constexpr SystemLogger log{"VController"};
 constexpr uint8_t defaultAlpha = 255. * .5;
@@ -43,6 +47,8 @@ VController::VController(ApplicationContext ctx):
 	// set dummy buttons to indicate uninitialized state
 	gpElements.emplace_back(std::in_place_type<VControllerButtonGroup>);
 	uiElements.emplace_back(std::in_place_type<VControllerUIButtonGroup>);
+	if(AppMeta::maxPlayers >= maxDuoPlayers)
+		playerControls_ = maxDuoPlayers;
 }
 
 int VController::xMMSizeToPixel(const Window &win, float mm) const
@@ -59,7 +65,7 @@ static void updateTexture(const EmuApp &app, VControllerElement &e, Gfx::Rendere
 {
 	e.visit(overloaded
 	{
-		[&](VControllerDPad& dpad){ dpad.setImage(task, app.asset(AppMeta::vControllerAssetDesc(KeyInfo{0})), fanQuadIdxs); },
+		[&](VControllerDPad& dpad){ dpad.setImage(task, app.asset(AppMeta::vControllerAssetDesc(dpad.config.keys[0])), fanQuadIdxs); },
 		[&](VControllerButtonGroup &grp)
 		{
 			for(auto &btn : grp.buttons)
@@ -97,6 +103,7 @@ static void updateTexture(const EmuApp &app, VControllerElement &e, Gfx::Rendere
 						case softReset:
 						case hardReset:
 						case resetMenu: return app.asset(AssetID::arrow);
+						case toggleDuoLayout: return app.asset(AssetID::menu);
 					}
 					return app.asset(AssetID::more);
 				}());
@@ -123,12 +130,35 @@ static void setSize(VControllerElement &elem, int sizePx, Gfx::Renderer &r)
 	});
 }
 
+static void setExactSize(VControllerElement &elem, int sizePx, Gfx::Renderer &r)
+{
+	assume(sizePx);
+	elem.visit(overloaded
+	{
+		[&](VControllerDPad &dpad){ dpad.setSize(r, sizePx); },
+		[&](VControllerButtonGroup &grp){ grp.setButtonSize(sizePx); },
+		[&](VControllerUIButtonGroup &grp){ grp.setButtonSize(sizePx); },
+	});
+}
+
 void VController::setButtonSizes(int gamepadBtnSizeInPixels, int uiBtnSizeInPixels)
 {
 	if(AppMeta::inputHasKeyboard)
 		kb.place(gamepadBtnSizeInPixels, gamepadBtnSizeInPixels * .75f, layoutBounds());
-	for(auto &elem : gpElements) { setSize(elem, gamepadBtnSizeInPixels, renderer()); }
-	for(auto &elem : uiElements) { setSize(elem, uiBtnSizeInPixels, renderer()); }
+	for(auto &elem : gpElements)
+	{
+		if(elem.sizeMM100x && hasWindow())
+			setExactSize(elem, std::max(1, xMMSizeToPixel(window(), elem.sizeMM100x / 100.f)), renderer());
+		else
+			setSize(elem, gamepadBtnSizeInPixels, renderer());
+	}
+	for(auto &elem : uiElements)
+	{
+		if(elem.sizeMM100x && hasWindow())
+			setExactSize(elem, std::max(1, xMMSizeToPixel(window(), elem.sizeMM100x / 100.f)), renderer());
+		else
+			setSize(elem, uiBtnSizeInPixels, renderer());
+	}
 }
 
 void VController::applyButtonSize()
@@ -167,22 +197,42 @@ void VController::updateAltSpeedModeInput(AltSpeedMode mode, bool on)
 	}
 }
 
+void VController::placeElement(VControllerElement &elem, int layoutIdx)
+{
+	auto saved = elem.layoutPos[layoutIdx];
+	if(elem.posIsMM())
+	{
+		elem.layoutPos[layoutIdx].pos.x = int16_t(xMMSizeToPixel(window(), saved.pos.x / 10.f));
+		elem.layoutPos[layoutIdx].pos.y = int16_t(yMMSizeToPixel(window(), saved.pos.y / 10.f));
+	}
+	elem.place(layoutBounds(), window().bounds(), layoutIdx);
+	elem.layoutPos[layoutIdx] = saved;
+}
+
 void VController::place()
 {
 	if(!hasWindow())
 		return;
 	auto &win = window();
+	if(twoPlayer_ && !duoCustomized_)
+		AppMeta::layoutDuoGamepad(*this);
 	applyButtonSize();
 	auto bounds = layoutBounds();
 	auto windowBounds = win.bounds();
 	bool isPortrait = win.isPortrait();
+	int gpLayout = activeGamepadLayoutIndex();
 	for(auto &elem : gpElements)
 	{
-		elem.place(bounds, windowBounds, isPortrait);
+		if(elem.isEmptiedSetMarker())
+			continue;
+		placeElement(elem, twoPlayer_ ? gpLayout : isPortrait);
 	}
 	for(auto &elem : uiElements)
 	{
-		elem.place(bounds, windowBounds, isPortrait);
+		if(elem.posIsMM())
+			placeElement(elem, isPortrait);
+		else
+			elem.place(bounds, windowBounds, isPortrait);
 	}
 	dragTracker.setDragStartPixels(win.widthMMInPixels(1.));
 }
@@ -199,6 +249,8 @@ std::array<KeyInfo, 2> VController::findGamepadElements(WPt pos)
 {
 	for(const auto &gpElem : gpElements)
 	{
+		if(gpElem.isEmptiedSetMarker())
+			continue;
 		auto indices = gpElem.visit(overloaded
 		{
 			[&](const VControllerDPad &dpad) -> std::array<KeyInfo, 2>
@@ -265,6 +317,18 @@ bool VController::pointerInputEvent(const Input::MotionEvent &e, WindowRect game
 			{
 				if(btn.bounds().overlaps(e.pos()))
 				{
+					if(btn.key.flags.appCode && AppKeyCode(btn.key.codes[0]) == AppKeyCode::toggleDuoLayout)
+					{
+						static SteadyClockTimePoint duoModeDown{};
+						if(e.pushed())
+						{
+							duoModeDown = e.time();
+							return true;
+						}
+						if(e.released() && e.time() - duoModeDown >= Milliseconds{500})
+							setDuoLayout(duoLayout_ == DuoLayout::Joint ? DuoLayout::Separate : DuoLayout::Joint);
+						return true;
+					}
 					app().handleKeyInput(btn.key, e);
 					return true;
 				}
@@ -368,6 +432,8 @@ void VController::draw(Gfx::RendererCommands &__restrict__ cmds, bool showHidden
 	{
 		auto elementIsEnabled = [&](const VControllerElement &e)
 		{
+			if(e.isEmptiedSetMarker())
+				return false;
 			return !((e.buttonGroup() && gamepadDisabledFlags.buttons) ||
 				(e.dPad() && gamepadDisabledFlags.dpad));
 		};
@@ -495,9 +561,28 @@ void VController::applySavedButtonAlpha()
 	applyButtonAlpha(alphaF);
 }
 
+static void applyDuoTint(VControllerElement &e, bool duo)
+{
+	if(auto *grp = e.buttonGroup())
+	{
+		for(auto &btn : grp->buttons)
+			btn.color = duo ? duoButtonColor(btn.key) : Gfx::Color{};
+	}
+	if(auto *dpad = e.dPad())
+	{
+		auto tint = (duo && dpad->config.keys[0]) ? duoButtonColor(dpad->config.keys[0]) : Gfx::Color{};
+		dpad->setTint(tint);
+	}
+}
+
 void VController::applyButtonAlpha(float alpha)
 {
-	for(auto &e : gpElements) { e.setAlpha(alpha); }
+	for(auto &e : gpElements)
+	{
+		applyDuoTint(e, twoPlayer_);
+		float a = e.hasOwnAlpha() ? e.ownAlpha / 255.f : alpha;
+		e.setAlpha(a);
+	}
 	for(auto &e : uiElements) { e.setAlpha(alpha); }
 }
 
@@ -666,6 +751,17 @@ static bool readVControllerElement(InputManager &mgr, MapIO &io, std::vector<VCo
 	return true;
 }
 
+// sizeMM100x, ownAlpha, duoFlags, duoRole. Also the matching trailer
+// written after every UI element in writeUIButtonsConfig.
+static bool readDuoExtra(MapIO &io, VControllerElement &elem)
+{
+	elem.sizeMM100x = io.get<int16_t>();
+	elem.ownAlpha = io.get<uint8_t>();
+	elem.duoFlags = io.get<uint8_t>();
+	elem.duoRole = io.get<uint8_t>();
+	return true;
+}
+
 bool VController::readConfig(EmuApp &app, MapIO &io, unsigned key)
 {
 	switch(key)
@@ -687,8 +783,60 @@ bool VController::readConfig(EmuApp &app, MapIO &io, unsigned key)
 			return true;
 		case CFGKEY_VCONTROLLER_ALLOW_PAST_CONTENT_BOUNDS: return readOptionValue(io, allowButtonsPastContentBounds_);
 		case CFGKEY_VCONTROLLER_HIGHLIGHT_PUSHED_BUTTONS: return readOptionValue(io, highlightPushedButtons);
+		case CFGKEY_VCONTROLLER_DEVICE_BUTTONS_V3:
+		{
+			auto deviceId = io.get<uint8_t>();
+			(void)deviceId;
+			auto configId = io.get<uint8_t>();
+			auto flags = io.get<uint8_t>();
+			playerSize_[0] = io.get<int16_t>();
+			playerSize_[1] = io.get<int16_t>();
+			playerAlpha_[0] = io.get<uint8_t>();
+			playerAlpha_[1] = io.get<uint8_t>();
+			if(flags & kDuoFlagSharedBlock)
+			{
+				sharedSize_ = io.get<int16_t>();
+				sharedAlpha_ = io.get<uint8_t>();
+				lockPlayerSizes_ = io.get<uint8_t>() != 0;
+			}
+			bool hasCount = flags & kDuoFlagPlayerCount;
+			int savedCount = 2;
+			if(hasCount)
+			{
+				auto extBytes = std::array<uint8_t, kQuadExtensionBytes>{};
+				for(auto &byte : extBytes)
+					byte = io.get<uint8_t>();
+				auto ext = decodeQuadExtension(extBytes);
+				savedCount = ext.playerCount;
+				playerSize_[2] = ext.size3;
+				playerSize_[3] = ext.size4;
+				playerAlpha_[2] = ext.alpha3;
+				playerAlpha_[3] = ext.alpha4;
+			}
+			duoLayout_ = configId == 0 ? DuoLayout::Separate : DuoLayout::Joint;
+			showSharedRow_ = flags & kDuoFlagSharedRow;
+			duoCustomized_ = flags & kDuoFlagCustom;
+			playerControls_ = int8_t(restoredPlayerCount(hasCount, savedCount, flags & kDuoFlagMulti, AppMeta::maxPlayers));
+			twoPlayer_ = playerControls_ > 1;
+			if(flags & kDuoFlagModeRemoved)
+				modeButtonRemoved_ = true;
+			auto elements = io.get<uint8_t>();
+			duoV3Loaded_ = true;
+			if(!twoPlayer_)
+				return true;
+			gpElements.clear();
+			log.info("read duo controls ({}) with {} element(s)", duoLayout_ == DuoLayout::Joint ? "joint" : "separate", elements);
+			for([[maybe_unused]] auto i : iotaCount(elements))
+			{
+				if(!readVControllerElement(app.inputManager, io, gpElements, false) || !readDuoExtra(io, gpElements.back()))
+					return false;
+			}
+			return true;
+		}
 		case CFGKEY_VCONTROLLER_DEVICE_BUTTONS_V2:
 		{
+			if(duoV3Loaded_ && twoPlayer_)
+				return true;
 			gpElements.clear();
 			[[maybe_unused]] auto emuDeviceId = io.get<uint8_t>(); // reserved for future use
 			[[maybe_unused]] auto configId = io.get<uint8_t>(); // reserved for future use
@@ -712,12 +860,63 @@ bool VController::readConfig(EmuApp &app, MapIO &io, unsigned key)
 				if(!readVControllerElement(app.inputManager, io, uiElements, true))
 					return false;
 			}
+			// Bytes still unread. Real MapIO::size() is the whole buffer and
+			// tell() is the cursor. The host test's blob has no tell(); its
+			// size() is already the unread tail. The check has to be a
+			// template or both branches are type-checked.
+			size_t remaining = []<class IO>(IO &in) -> size_t
+			{
+				if constexpr(requires { in.tell(); })
+				{
+					auto pos = in.tell();
+					return (pos >= 0 && size_t(pos) <= in.size()) ? in.size() - size_t(pos) : 0;
+				}
+				else
+					return in.size();
+			}(io);
+			if(elements && remaining >= size_t(elements) * uiButtonDuoExtraBytes)
+			{
+				for(auto &elem : uiElements)
+					readDuoExtra(io, elem);
+			}
+			else if(!elements)
+			{
+				// Saved empty layout. A fresh install has no key at all, so
+				// configure() must not treat this the same way and recreate buttons.
+				auto &marker = uiElements.emplace_back(std::in_place_type<VControllerUIButtonGroup>);
+				marker.layoutPos[0].pos.x = -2;
+				marker.layoutPos[0].pos.y = -2;
+				marker.layoutPos[1].pos.x = -2;
+				marker.layoutPos[1].pos.y = -2;
+			}
+			else
+			{
+				for(auto &elem : uiElements)
+				{
+					auto *grp = elem.uiButtonGroup();
+					// Only the generated Mode button was stored as millimetres*10
+					// with the flag omitted. Other UI groups use pixel anchors.
+					if(!grp || grp->buttons.size() != 1)
+						continue;
+					auto &key = grp->buttons[0].key;
+					if(!(key.flags.appCode && AppKeyCode(key.codes[0]) == AppKeyCode::toggleDuoLayout))
+						continue;
+					elem.duoFlags |= VControllerElement::DUO_POS_MM;
+					if(!elem.sizeMM100x)
+						elem.sizeMM100x = 900;
+				}
+			}
+			for(const auto &elem : uiElements)
+			{
+				if(elem.duoFlags & VControllerElement::DUO_MODE_REMOVED)
+					modeButtonRemoved_ = true;
+			}
 			return true;
 		}
 	}
 }
 
-static void writeToConfig(const VControllerElement &e, FileIO &io)
+static void writeToConfig(const VControllerElement &e, FileIO &io, bool duoExtra = false)
 {
 	io.put(e.dPad() ? int8_t(1) : int8_t(0));
 	e.visit(overloaded
@@ -755,6 +954,13 @@ static void writeToConfig(const VControllerElement &e, FileIO &io)
 	io.put(e.layoutPos[1].pos);
 	io.put(e.layoutPos[1].origin.pack());
 	io.put(e.state);
+	if(duoExtra)
+	{
+		io.put(e.sizeMM100x);
+		io.put(e.ownAlpha);
+		io.put(e.duoFlags);
+		io.put(e.duoRole);
+	}
 }
 
 static size_t configDataSizeBytes(const std::vector<VControllerElement> &elems, bool savingUIElems)
@@ -769,6 +975,8 @@ static size_t configDataSizeBytes(const std::vector<VControllerElement> &elems, 
 		bytes++; // element type
 		bytes += e.configSize();
 	}
+	if(savingUIElems)
+		bytes += elems.size() * uiButtonDuoExtraBytes;
 	return bytes;
 }
 
@@ -789,6 +997,51 @@ void VController::writeDeviceButtonsConfig(FileIO &io) const
 	for(const auto &e : gpElements) { writeToConfig(e, io); }
 }
 
+void VController::writeDuoButtonsConfig(FileIO &io) const
+{
+	size_t bytes = 2; // key
+	bytes += 1 + 1 + 1 + sizeof(playerSize_[0]) + sizeof(playerSize_[1]) + 1 + 1;
+	bytes += sizeof(sharedSize_) + 1 + 1;
+	bytes += kQuadExtensionBytes;
+	bytes += 1; // element count
+	if(twoPlayer_)
+	{
+		for(const auto &e : gpElements)
+			bytes += 1 + e.configSize() + uiButtonDuoExtraBytes;
+	}
+	if(bytes > std::numeric_limits<uint16_t>::max())
+	{
+		log.error("duo button data bytes:{} too large", bytes);
+		return;
+	}
+	io.put(uint16_t(bytes));
+	io.put(uint16_t(CFGKEY_VCONTROLLER_DEVICE_BUTTONS_V3));
+	io.put(uint8_t(0));
+	io.put(uint8_t(duoLayout_ == DuoLayout::Separate ? 0 : 1));
+	uint8_t flags = duoHeaderFlags(playerControls_ > 1, showSharedRow_, duoCustomized_, modeButtonRemoved_);
+	io.put(flags);
+	io.put(playerSize_[0]);
+	io.put(playerSize_[1]);
+	io.put(playerAlpha_[0]);
+	io.put(playerAlpha_[1]);
+	io.put(sharedSize_);
+	io.put(sharedAlpha_);
+	io.put(uint8_t(lockPlayerSizes_ ? 1 : 0));
+	auto ext = encodeQuadExtension({
+		uint8_t(clampPlayerCount(playerControls_)),
+		playerSize_[2], playerSize_[3],
+		playerAlpha_[2], playerAlpha_[3]});
+	for(auto byte : ext)
+		io.put(byte);
+	auto count = twoPlayer_ ? uint8_t(std::min(gpElements.size(), size_t(255))) : uint8_t(0);
+	io.put(count);
+	log.info("wrote duo controls ({} bytes, {} elements, players:{})", bytes, count, int(playerControls_));
+	if(!twoPlayer_)
+		return;
+	for(const auto &e : gpElements)
+		writeToConfig(e, io, true);
+}
+
 void VController::writeUIButtonsConfig(FileIO &io) const
 {
 	auto bytes = configDataSizeBytes(uiElements, true);
@@ -803,6 +1056,17 @@ void VController::writeUIButtonsConfig(FileIO &io) const
 	io.put(uint8_t(std::min(uiElements.size(), 255zu)));
 	log.info("wrote UI button data ({} bytes) with {} element(s)", bytes, uiElements.size());
 	for(const auto &e : uiElements) { writeToConfig(e, io); }
+	// sizeMM100x, ownAlpha, duoFlags, duoRole. Older readers stop after state.
+	for(const auto &e : uiElements)
+	{
+		io.put(e.sizeMM100x);
+		io.put(e.ownAlpha);
+		auto flags = e.duoFlags;
+		if(modeButtonRemoved_)
+			flags = uint8_t(flags | VControllerElement::DUO_MODE_REMOVED);
+		io.put(flags);
+		io.put(e.duoRole);
+	}
 }
 
 void VController::writeConfig(FileIO &io) const
@@ -820,7 +1084,9 @@ void VController::writeConfig(FileIO &io) const
 	if(allowButtonsPastContentBounds_)
 		writeOptionValue(io, CFGKEY_VCONTROLLER_ALLOW_PAST_CONTENT_BOUNDS, true);
 	writeOptionValueIfNotDefault(io, CFGKEY_VCONTROLLER_HIGHLIGHT_PUSHED_BUTTONS, highlightPushedButtons, true);
-	writeDeviceButtonsConfig(io);
+	writeDuoButtonsConfig(io);
+	if(!twoPlayer_)
+		writeDeviceButtonsConfig(io);
 	writeUIButtonsConfig(io);
 }
 
@@ -839,7 +1105,21 @@ void VController::configure(Window &win, Gfx::Renderer &renderer, const Gfx::Gly
 	}
 	gamepadTex = app().asset(AssetID::gamepadOverlay);
 	uiTex = app().asset(AssetID::more);
-	if(uiElements.size() && uiElements[0].layoutPos[0].pos.x == -1)
+	bool explicitEmptyLayout{};
+	if(uiElements.size() == 1)
+	{
+		auto &marker = uiElements[0];
+		auto *grp = marker.uiButtonGroup();
+		explicitEmptyLayout = grp && grp->buttons.empty()
+			&& marker.layoutPos[0].pos.x == -2 && marker.layoutPos[0].pos.y == -2
+			&& marker.layoutPos[1].pos.x == -2 && marker.layoutPos[1].pos.y == -2;
+	}
+	if(explicitEmptyLayout)
+	{
+		// Key 113 was saved with zero UI elements. Do not recreate them.
+		uiElements.clear();
+	}
+	else if(uiElements.size() && uiElements[0].layoutPos[0].pos.x == -1)
 	{
 		resetUIGroups();
 	}
@@ -847,7 +1127,7 @@ void VController::configure(Window &win, Gfx::Renderer &renderer, const Gfx::Gly
 	{
 		for(auto &e : uiElements) { update(e); };
 	}
-	if(gpElements.size() && gpElements[0].layoutPos[0].pos.x == -1)
+	if(!gpElements.size() || gpElements[0].layoutPos[0].pos.x == -1)
 	{
 		resetEmulatedDeviceGroups();
 	}
@@ -855,11 +1135,20 @@ void VController::configure(Window &win, Gfx::Renderer &renderer, const Gfx::Gly
 	{
 		for(auto &e : gpElements)
 		{
+			if(e.isEmptiedSetMarker())
+				continue;
+			bindElementToItsPlayer(e);
 			update(e);
 			if(e.dPad()) e.dPad()->updateBoundingAreaGfx(renderer);
 		};
+		if(playerControls_ > 1)
+			supplementMissingPlayers();
 	}
+	if(playerControls_ >= 4)
+		AppMeta::setPort1Multitap(true);
 	setInputPlayer(0);
+	if(!explicitEmptyLayout)
+		syncDuoModeButton();
 }
 
 void VController::resetEmulatedDevicePositions(std::vector<VControllerElement> &gpElements) const
@@ -903,12 +1192,45 @@ void VController::resetEmulatedDevicePositions(std::vector<VControllerElement> &
 	}
 }
 
-void VController::resetEmulatedDevicePositions() { resetEmulatedDevicePositions(gpElements); }
+void VController::resetEmulatedDevicePositions()
+{
+	if(twoPlayer_)
+	{
+		duoCustomized_ = false;
+		if(hasWindow())
+		{
+			AppMeta::layoutDuoGamepad(*this);
+			place();
+		}
+		return;
+	}
+	resetEmulatedDevicePositions(gpElements);
+}
+
+void VController::resetEmulatedDeviceGroups(bool keepEmptied)
+{
+	log.info("setting default emu device button groups");
+	uint8_t keep = keepEmptied ? emptiedPlayerMask() : 0;
+	duoCustomized_ = false;
+	if(twoPlayer_)
+	{
+		gpElements.clear();
+		if(AppMeta::buildDuoGamepad(*this))
+		{
+			if(keep)
+				applyEmptiedMask(keep);
+			return;
+		}
+		// This system has no multi-player touch layout.
+		twoPlayer_ = false;
+		playerControls_ = 1;
+	}
+	gpElements = defaultEmulatedDeviceGroups();
+}
 
 void VController::resetEmulatedDeviceGroups()
 {
-	log.info("setting default emu device button groups");
-	gpElements = defaultEmulatedDeviceGroups();
+	resetEmulatedDeviceGroups(false);
 }
 
 std::vector<VControllerElement> VController::defaultEmulatedDeviceGroups() const
@@ -950,6 +1272,7 @@ void VController::resetUIGroups()
 {
 	log.info("setting default UI button groups");
 	uiElements = defaultUIGroups();
+	syncDuoModeButton();
 }
 
 std::vector<VControllerElement> VController::defaultUIGroups() const
@@ -1069,8 +1392,23 @@ void VController::update(VControllerElement &elem) const
 
 bool VController::remove(VControllerElement &elemToErase)
 {
-	return std::erase_if(gpElements, [&](auto &e) { return &e == &elemToErase; }) ||
+	int player = elemToErase.playerIndex();
+	bool emptiedCandidate = player >= 0 && !elemToErase.isEmptiedSetMarker() && !elemToErase.isSharedSet();
+	if(uiElementIsDuoModeButton(elemToErase))
+	{
+		modeButtonRemoved_ = true;
+		for(auto &elem : uiElements)
+		{
+			if(&elem == &elemToErase)
+				continue;
+			elem.duoFlags = uint8_t(elem.duoFlags | VControllerElement::DUO_MODE_REMOVED);
+		}
+	}
+	bool removed = std::erase_if(gpElements, [&](auto &e) { return &e == &elemToErase; }) ||
 		std::erase_if(uiElements, [&](auto &e) { return &e == &elemToErase; });
+	if(removed && emptiedCandidate && !hasRealPlayerElements(player))
+		ensureEmptyPlayerMarker(player);
+	return removed;
 }
 
 WRect VController::layoutBounds() const

@@ -158,6 +158,9 @@ public:
 	void saveCartNV(FileIO &);
 	void applyInputConfig(InputConfig, EmuApp&);
 	void applyInputConfig(EmuApp& app) { applyInputConfig(inputConfig, app); }
+	// Four on-screen players need the first controller port's multitap.
+	// That port cannot stay a light gun.
+	void enablePort1Multitap(bool enabled);
 	void setInputConfig(InputConfig, EmuApp&);
 	int currentDiscId() const;
 	void setDisc(int id);
