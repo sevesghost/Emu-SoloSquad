@@ -24,7 +24,6 @@
 namespace EmuEx
 {
 
-extern constexpr size_t uiButtonDuoExtraBytes = sizeof(int16_t) + sizeof(uint8_t) * 3;
 static_assert(uiButtonDuoExtraBytes == 5);
 
 constexpr SystemLogger log{"VController"};

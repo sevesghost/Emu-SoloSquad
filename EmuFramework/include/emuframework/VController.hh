@@ -621,7 +621,7 @@ struct VControllerGamepadFlags
 };
 
 // Per-button duo trailer: int16 sizeMM100x, uint8 ownAlpha, uint8 duoFlags, uint8 duoRole.
-extern constexpr size_t uiButtonDuoExtraBytes;
+inline constexpr size_t uiButtonDuoExtraBytes = sizeof(int16_t) + sizeof(uint8_t) * 3;
 
 class VController : public EmuAppHelper
 {

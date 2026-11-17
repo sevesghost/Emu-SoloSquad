@@ -106,8 +106,8 @@ void SaturnSystem::enablePort1Multitap(bool enabled)
 		for(int slot = 0; slot < 4; ++slot)
 			inputConfig.devs[slot] = InputDeviceType::gamepad;
 	}
-	if(!hasContent())
-		return;
+	if(!CDInterfaces.size())
+		return; // SMPC_Init has not run yet; same guard as applyInputConfig.
 	using namespace MDFN_IEN_SS;
 	SMPC_SetMultitap(0, enabled);
 	SMPC_SetMultitap(1, inputConfig.multitaps[1]);
