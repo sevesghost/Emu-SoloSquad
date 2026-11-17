@@ -98,6 +98,37 @@ static const char *toString(InputDeviceType dev)
 	std::unreachable();
 }
 
+void SaturnSystem::enablePort1Multitap(bool enabled)
+{
+	if(enabled)
+	{
+		if(!inputConfig.multitaps[0])
+			port1MultitapAuto = true;
+	}
+	else
+	{
+		if(!port1MultitapAuto)
+			return; // user turned it on, leave it alone
+		port1MultitapAuto = false;
+	}
+	inputConfig.multitaps[0] = enabled;
+	if(enabled)
+	{
+		for(int slot = 0; slot < 4; ++slot)
+			inputConfig.devs[slot] = InputDeviceType::gamepad;
+	}
+	if(!CDInterfaces.size())
+		return; // SMPC_Init has not run yet; same guard as applyInputConfig.
+	using namespace MDFN_IEN_SS;
+	SMPC_SetMultitap(0, enabled);
+	SMPC_SetMultitap(1, inputConfig.multitaps[1]);
+	for(auto [idx, dev] : enumerate(inputConfig.devs))
+	{
+		mdfnGameInfo.SetInput(idx, toString(dev), reinterpret_cast<uint8*>(&inputBuff[idx]));
+	}
+	currStateSize = stateSizeMDFN();
+}
+
 void SaturnSystem::applyInputConfig(InputConfig config, EmuApp &app)
 {
 	if(!CDInterfaces.size())

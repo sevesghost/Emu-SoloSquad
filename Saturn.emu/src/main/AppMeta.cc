@@ -254,6 +254,31 @@ SystemInputDeviceDesc AppMeta::inputDeviceDesc(int idx)
 	return gamepadDesc;
 }
 
+bool AppMeta::buildDuoGamepad(VController &v)
+{
+	v.buildGenericQuadSets();
+	if(v.hasWindow())
+		v.layoutGenericQuadSets();
+	if(v.playerControls() >= 4)
+		setPort1Multitap(true);
+	return true;
+}
+
+void AppMeta::layoutDuoGamepad(VController &v)
+{
+	v.layoutGenericQuadSets();
+}
+
+void AppMeta::refreshDuoButtonSizes(VController &v)
+{
+	v.refreshGenericQuadSizes();
+}
+
+void AppMeta::setPort1Multitap(bool enabled)
+{
+	static_cast<SaturnSystem&>(gSystem()).enablePort1Multitap(enabled);
+}
+
 void AppMeta::onCustomizeNavView(AppNavView& view)
 {
 	const Gfx::LGradientStopDesc navViewGrad[] =

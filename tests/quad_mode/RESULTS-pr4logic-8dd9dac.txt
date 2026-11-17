@@ -1,0 +1,149 @@
+probe /tmp/w8dd9dac: found SYNC_DUO_MODE_BUTTON NOTE_UI_BUTTON_REMOVED NOTE_UI_BUTTON_ADDED ON_LAYOUT_EDITOR_CLOSED SET_DUO_LAYOUT SET_PLAYER_CONTROLS MAX_DUO_PLAYERS DUO_ROLE_COLOR DUO_ROLE_PORT UI_DUO_EXTRA_BYTES SATURN_INPUT; missing 0
+backend: pr4logic
+PASS    cross 1 press P1..P4 button only reaches own port
+PASS    cross 1b press isolation survives relaunch x2 and Joint/Separate switch
+PASS    cross 1c UI buttons (Menu/FF/Rewind/Mode) feed no player port
+PASS    cross 2 cycle 4p/2p/1p modes x3: no overlap, no missing button
+PASS    cross 2b Joint/Separate switch x6 in each mode: no overlap, no missing
+PASS    cross 2c moved/hidden button keeps its value across mode cycling
+PASS    cross 2d Mode removed, cycle 4p/2p/1p x3 + relaunch x2: Mode stays gone, saved bit7 kept, no overlap/missing
+PASS    cross 4 NEO-Duo 2p config loads in quad mode, P1/P2 mapped to ports 1/2
+SKIP    cross 4b real NEO-Duo samples-pr2b (bit-7 format) load; Mode presence preserved  -- key 113 is real NEO-Duo element format (not model format): real backend only
+PASS    cross 3 remove game button in P1..P4: other sets unchanged (mem+saved, relaunch x2)
+PASS    cross 3b remove shared Mode (three-line) button: all 4 player sets unchanged, Mode stays gone
+PASS    cross 3c remove all of P2's buttons: P1/P3/P4 still complete and press-isolated
+PASS    p1 A remove Mode, relaunch x2, stays gone, P1 pad intact
+PASS    p1 A-pad remove each P1 game key, relaunch x2, stays gone, others intact
+PASS    p1 A2 default UI: remove Mode, bit7 on remaining UI in saved bytes, relaunch x2
+PASS    p1 B add Mode back with custom pos/hidden, kept after relaunch x2
+PASS    p1 C move/hide P1 Dpad, Start and Mode, kept after relaunch x2
+PASS    p1 D Reset UI Groups restores Mode at defaults, clears removed mark
+PASS    p1 E old NEO-Duo 2P config loads P1 (role 0) and Mode; P3/P4 default
+PASS    p1 F close editor saves; kill keeps Mode removal, P1 move and P1 delete
+PASS    p1 G remove Mode, switch layout + players 4/2/1/4, relaunch x2, stays gone
+PASS    p1 G2 default UI: bit7 survives every switch/player change and relaunch x2
+PASS    p1 H remove all UI, relaunch x2, no crash/no regrow, P1 intact
+PASS    p1 H-pad remove every P1 game key, relaunch x2, set stays empty, others intact
+PASS    p1 I remove all UI, add back non-Mode, relaunch x2, Mode stays gone
+PASS    p2 A remove Mode, relaunch x2, stays gone, P2 pads intact
+PASS    p2 A-pad remove P2 Start, relaunch x2, stays gone, others intact
+PASS    p2 A-all remove every P2 pad button, relaunch x2, P2 stays empty, others+UI unchanged
+PASS    p2 A2 default UI: remove Mode, relaunch x2, bit7 on remaining UI, P2 intact
+PASS    p2 B add Mode back with custom pos/hide, persists after relaunch x2
+PASS    p2 C move/hide Mode and P2 B, persist after relaunch x2
+PASS    p2 D Reset UI Groups restores Mode at defaults, clears removed mark
+PASS    p2 E old NEO-Duo 2P config loads P2 and Mode; P3/P4 default
+PASS    p2 F close layout editor saves; kill keeps Mode removal and P2 A move
+PASS    p2 G remove Mode, switch layout, relaunch x2, stays gone, P2 intact
+PASS    p2 G2 default UI: remove Mode, switch layout, relaunch x2, bit7 stays, P2 intact
+PASS    p2 H remove all UI, relaunch x2, no crash/no regrow, P2 pads intact
+PASS    p2 I remove all UI, add back non-Mode, relaunch x2, Mode stays gone
+PASS    p3 A remove Mode, relaunch x2, stays gone, P3 pads intact
+PASS    p3 A-pad remove P3 Z, relaunch x2, stays gone, others intact
+PASS    p3 A-set remove all P3 buttons, relaunch x2, stays empty, others intact
+PASS    p3 A2 default UI: remove Mode, relaunch x2, bit7 on remaining UI, P3 intact
+PASS    p3 B add Mode back with custom pos/hide, persists after relaunch x2
+PASS    p3 C move/hide Mode and P3 X, persist after relaunch x2
+PASS    p3 D Reset UI Groups restores Mode/UI defaults, clears bit7, keeps P3 edits
+PASS    p3 E old NEO-Duo 2P config loads; P3 gets full defaults with role 2; Mode present
+PASS    p3 color P3 pad tint distinct from others and kept after relaunch x2
+PASS    p3 F close layout editor saves; kill keeps Mode removal and P3 A move
+PASS    p3 G remove Mode, switch layout, relaunch x2, stays gone, P3 intact
+PASS    p3 G2 default UI: remove Mode, switch layout + players 2/1/4, relaunch x2, bit7 stays, P3 intact
+PASS    p3 H remove all UI, relaunch x2, no crash/no regrow, P3 pads intact
+PASS    p3 I remove all UI, add back non-Mode, relaunch x2, Mode stays gone
+PASS    p4 A remove Mode, relaunch x2, stays gone, P4 pads intact
+PASS    p4 A-pad remove P4 Start, relaunch x2, stays gone, others intact
+PASS    p4 A2 default UI: remove Mode, relaunch x2, bit7 on remaining UI, P4 intact
+PASS    p4 B add Mode back with custom pos/hide, persists after relaunch x2
+PASS    p4 C move/hide Mode and P4 pads, persist after relaunch x2
+PASS    p4 D Reset UI Groups restores Mode at defaults, clears removed mark
+PASS    p4 E old NEO-Duo 2P config: P4 gets defaults with role 3, Mode shown
+PASS    p4 F close layout editor saves; kill keeps Mode removal and P4 R move
+PASS    p4 G remove Mode, switch layout, relaunch x2, stays gone, P4 intact
+PASS    p4 G2 default UI: remove Mode, switch layout, relaunch x2, bit7 stays, P4 intact
+PASS    p4 H remove all UI, relaunch x2, no crash/no regrow, P4 pads intact
+PASS    p4 H-pad remove all P4 pads, relaunch x2, set stays empty, others intact
+PASS    p4 I remove all UI, add back non-Mode, relaunch x2, Mode stays gone
+PASS    p4 A-port remove Mode, relaunch x2, P4 pads reach port 4 only
+PASS    A route: each button of set -> own port only [P1]
+PASS    A route: each button of set -> own port only [P2]
+PASS    A route: each button of set -> own port only [P3]
+PASS    A route: each button of set -> own port only [P4]
+PASS    A2 delete Mode from real defaults, relaunch x2 [P1]
+PASS    A2 delete Mode from real defaults, relaunch x2 [P2]
+PASS    A2 delete Mode from real defaults, relaunch x2 [P3]
+PASS    A2 delete Mode from real defaults, relaunch x2 [P4]
+PASS    B color distinct from other sets [P1]
+PASS    B color distinct from other sets [P2]
+PASS    B color distinct from other sets [P3]
+PASS    B color distinct from other sets [P4]
+PASS    C delete button persists x2 relaunch, isolated, re-add [P1]
+PASS    C delete button persists x2 relaunch, isolated, re-add [P2]
+PASS    C delete button persists x2 relaunch, isolated, re-add [P3]
+PASS    C delete button persists x2 relaunch, isolated, re-add [P4]
+PASS    C move button persists x2 relaunch, isolated [P1]
+PASS    C move button persists x2 relaunch, isolated [P2]
+PASS    C move button persists x2 relaunch, isolated [P3]
+PASS    C move button persists x2 relaunch, isolated [P4]
+PASS    C hide button persists x2 relaunch, isolated, unhide [P1]
+PASS    C hide button persists x2 relaunch, isolated, unhide [P2]
+PASS    C hide button persists x2 relaunch, isolated, unhide [P3]
+PASS    C hide button persists x2 relaunch, isolated, unhide [P4]
+PASS    D Mode removed survives layout switch + 2 relaunches [P1]
+PASS    D Mode removed survives layout switch + 2 relaunches [P2]
+PASS    D Mode removed survives layout switch + 2 relaunches [P3]
+PASS    D Mode removed survives layout switch + 2 relaunches [P4]
+PASS    E NEO-Duo 2-player config loads, sets 3-4 default [P1]
+PASS    E NEO-Duo 2-player config loads, sets 3-4 default [P2]
+PASS    E NEO-Duo 2-player config loads, sets 3-4 default [P3]
+PASS    E NEO-Duo 2-player config loads, sets 3-4 default [P4]
+PASS    F delete Mode, kill after editor close, stays deleted [P1]
+PASS    F delete Mode, kill after editor close, stays deleted [P2]
+PASS    F delete Mode, kill after editor close, stays deleted [P3]
+PASS    F delete Mode, kill after editor close, stays deleted [P4]
+PASS    G2 delete Mode + layout switch before save, real defaults [P1]
+PASS    G2 delete Mode + layout switch before save, real defaults [P2]
+PASS    G2 delete Mode + layout switch before save, real defaults [P3]
+PASS    G2 delete Mode + layout switch before save, real defaults [P4]
+PASS    G delete all UI buttons, relaunch x2, none recreated [P1]
+PASS    G delete all UI buttons, relaunch x2, none recreated [P2]
+PASS    G delete all UI buttons, relaunch x2, none recreated [P3]
+PASS    G delete all UI buttons, relaunch x2, none recreated [P4]
+PASS    H Mode-only UI start, delete Mode, relaunch x2 [P1]
+PASS    H Mode-only UI start, delete Mode, relaunch x2 [P2]
+PASS    H Mode-only UI start, delete Mode, relaunch x2 [P3]
+PASS    H Mode-only UI start, delete Mode, relaunch x2 [P4]
+PASS    I delete all UI, add back non-Mode one at a time -> Mode stays gone [P1]
+PASS    I delete all UI, add back non-Mode one at a time -> Mode stays gone [P2]
+PASS    I delete all UI, add back non-Mode one at a time -> Mode stays gone [P3]
+PASS    I delete all UI, add back non-Mode one at a time -> Mode stays gone [P4]
+PASS    S2 per-player size/alpha persist, P3/P4 do not overwrite P2 [P1]
+PASS    S2 per-player size/alpha persist, P3/P4 do not overwrite P2 [P2]
+PASS    S2 per-player size/alpha persist, P3/P4 do not overwrite P2 [P3]
+PASS    S2 per-player size/alpha persist, P3/P4 do not overwrite P2 [P4]
+PASS    S3 turbo/toggle shared path reaches own port [P1]
+PASS    S3 turbo/toggle shared path reaches own port [P2]
+PASS    S3 turbo/toggle shared path reaches own port [P3]
+PASS    S3 turbo/toggle shared path reaches own port [P4]
+PASS    S4 playerSet bits 3-5 == setFieldForPlayer(role) (0,1,3,4), bit7 untouched [P1]
+PASS    S4 playerSet bits 3-5 == setFieldForPlayer(role) (0,1,3,4), bit7 untouched [P2]
+PASS    S4 playerSet bits 3-5 == setFieldForPlayer(role) (0,1,3,4), bit7 untouched [P3]
+PASS    S4 playerSet bits 3-5 == setFieldForPlayer(role) (0,1,3,4), bit7 untouched [P4]
+PASS    S5 player-count switch 4/2/1/4 does not resurrect Mode [P1]
+PASS    S5 player-count switch 4/2/1/4 does not resurrect Mode [P2]
+PASS    S5 player-count switch 4/2/1/4 does not resurrect Mode [P3]
+PASS    S5 player-count switch 4/2/1/4 does not resurrect Mode [P4]
+PASS    D2 Reset UI Groups restores Mode and clears removed flag [P1]
+PASS    D2 Reset UI Groups restores Mode and clears removed flag [P2]
+PASS    D2 Reset UI Groups restores Mode and clears removed flag [P3]
+PASS    D2 Reset UI Groups restores Mode and clears removed flag [P4]
+PASS    C4 delete ALL buttons of set, relaunch x2, not refilled; others intact [P1]
+PASS    C4 delete ALL buttons of set, relaunch x2, not refilled; others intact [P2]
+PASS    C4 delete ALL buttons of set, relaunch x2, not refilled; others intact [P3]
+PASS    C4 delete ALL buttons of set, relaunch x2, not refilled; others intact [P4]
+PASS    S1 4-player mode enables Saturn port-1 multitap; 2P does not need it
+PENDING S1b 4P: open game -> resetSessionOptions()/applyInputConfig keeps multitaps[0]=true, devs[0..3]=gamepad  -- Saturn.emu session path (EmuSystem.cc:352 resetSessionOptions, EmuApp.cc:1041 applyInputConfig, input.cc:101-123) needs Mednafen SMPC + EmuApp; not host-testable in this harness -- verify on device / via ออก code review
+PASS    S6 remove all UI then sync (relaunch/player switch) does not recreate Mode
+PASS    O1 saved key-113 size consistent, no bytes left after save/load/save
+summary: 144 pass, 0 fail, 1 skip, 1 pending; known issues (not counted): 0 xfail, 0 xpass

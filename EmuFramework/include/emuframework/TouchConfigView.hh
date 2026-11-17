@@ -39,6 +39,7 @@ public:
 	void draw(Gfx::RendererCommands&__restrict__, ViewDrawParams p = {}) const final;
 	void reloadItems();
 	void onShow() final;
+	void onDismiss() final;
 
 protected:
 	VController &vController;
@@ -46,6 +47,25 @@ protected:
 	MultiChoiceMenuItem touchCtrl;
 	DynArray<TextMenuItem> playerItems;
 	MultiChoiceMenuItem player;
+	BoolMenuItem twoPlayers;
+	TextMenuItem playerCountItem[3];
+	MultiChoiceMenuItem playerCount;
+	TextMenuItem duoLayoutItem[2];
+	MultiChoiceMenuItem duoLayout;
+	BoolMenuItem sharedFaceRow;
+	TextMenuItem p1SizeItem[6];
+	MultiChoiceMenuItem p1Size;
+	TextMenuItem p2SizeItem[6];
+	MultiChoiceMenuItem p2Size;
+	TextMenuItem duoAlphaItem[4];
+	MultiChoiceMenuItem p1Alpha;
+	MultiChoiceMenuItem p2Alpha;
+	BoolMenuItem lockPlayerSizes;
+	TextMenuItem sharedSizeItem[6];
+	MultiChoiceMenuItem sharedSize;
+	TextMenuItem sharedAlphaItem[5];
+	MultiChoiceMenuItem sharedAlpha;
+	TextHeadingMenuItem modeHint;
 	TextMenuItem sizeItem[11];
 	MultiChoiceMenuItem size;
 	BoolMenuItem vibrate;

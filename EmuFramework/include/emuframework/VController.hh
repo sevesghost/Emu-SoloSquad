@@ -18,6 +18,7 @@
 #include <emuframework/defs.hh>
 #include <emuframework/EmuAppHelper.hh>
 #include <emuframework/inputDefs.hh>
+#include <emuframework/QuadControls.hh>
 #include <emuframework/EmuViewController.hh>
 #ifndef IG_USE_MODULE_IMAGINE
 #include <imagine/input/inputDefs.hh>
@@ -127,6 +128,7 @@ protected:
 	Gfx::ILitTexFanQuads spriteQuads;
 	Gfx::TextureSpan tex;
 	Gfx::Texture mapImg;
+	Gfx::Color color{};
 	WRect padBaseArea, padArea;
 	int deadzonePixels{};
 	int btnSizePixels{};
@@ -138,6 +140,8 @@ public:
 	bool isHighlighted[4]{};
 
 	void updateBoundingAreaGfx(Gfx::Renderer &);
+	void setTint(Gfx::Color c) { color = c; }
+	Gfx::Color tint() const { return color; }
 };
 
 class VControllerKeyboard
@@ -388,6 +392,30 @@ public:
 
 	std::array<VControllerLayoutPosition, 2> layoutPos;
 	VControllerState state{VControllerState::SHOWN};
+	// Duo controls. sizeMM100x 0 uses the global button size. Positions are
+	// millimetres*10 from layoutPos.origin when DUO_POS_MM is set.
+	int16_t sizeMM100x{};
+	uint8_t ownAlpha{};
+	uint8_t duoFlags{};
+	uint8_t duoRole{255};
+
+	static constexpr uint8_t DUO_POS_MM = 1 << 0;
+	static constexpr uint8_t DUO_FIXED_PLAYER = 1 << 1;
+	static constexpr uint8_t DUO_OWN_ALPHA = 1 << 2;
+	static constexpr uint8_t DUO_PLAYER_SHIFT = kDuoPlayerShift;
+	static constexpr uint8_t DUO_PLAYER_MASK = kDuoPlayerMask; // bits 3-5
+	static constexpr uint8_t DUO_MODE_REMOVED = kDuoModeRemovedFlag; // bit 7, Mode button only
+
+	constexpr bool posIsMM() const { return duoFlags & DUO_POS_MM; }
+	constexpr bool fixedPlayer() const { return duoFlags & DUO_FIXED_PLAYER; }
+	constexpr bool hasOwnAlpha() const { return duoFlags & DUO_OWN_ALPHA; }
+	constexpr int playerSet() const { return (duoFlags & DUO_PLAYER_MASK) >> DUO_PLAYER_SHIFT; }
+	constexpr int playerIndex() const { return playerIndexFromSet(playerSet()); }
+	constexpr bool isSharedSet() const { return playerSet() == 2; }
+	constexpr bool isEmptiedSetMarker() const
+	{
+		return isEmptiedSetPos(layoutPos[0].pos.x, layoutPos[0].pos.y, layoutPos[1].pos.x, layoutPos[1].pos.y);
+	}
 
 	constexpr auto dPad(this auto&& self) { return std::get_if<VControllerDPad>(&self); }
 	constexpr auto buttonGroup(this auto&& self) { return std::get_if<VControllerButtonGroup>(&self); }
@@ -457,7 +485,10 @@ public:
 
 	std::string name(const InputManager &mgr) const
 	{
-		return visit([&](auto &e){ return e.name(mgr); });
+		auto label = visit([&](auto &e){ return e.name(mgr); });
+		if(!fixedPlayer())
+			return label;
+		return std::string{playerFaceLabel(playerIndex(), isSharedSet())} + label;
 	}
 
 	void updateMeasurements(const Window &win)
@@ -473,6 +504,10 @@ public:
 
 	void transposeKeysForPlayer(const InputManager &mgr, int player)
 	{
+		// P2 (and any control locked to its own player) must survive
+		// configure()/setInputPlayer(), which retargets the single-player set.
+		if(fixedPlayer())
+			return;
 		visit([&](auto &e)
 		{
 			if constexpr(requires {e.transposeKeysForPlayer(mgr, player);})
@@ -550,6 +585,30 @@ enum class VControllerVisibility : uint8_t
 	OFF, ON, AUTO
 };
 
+enum class DuoLayout : uint8_t
+{
+	Separate = 0,
+	Joint = 1
+};
+
+inline Gfx::Color duoRoleColor(int role)
+{
+	auto c = duoRoleColorRgba(role);
+	return {c.r, c.g, c.b, c.a};
+}
+
+inline Gfx::Color duoButtonColor(KeyInfo key)
+{
+	const bool turbo = key.flags.turbo;
+	if(key.flags.bothPlayers)
+		return turbo ? Gfx::Color{1.f, 0.85f, 0.35f, 0.5f} : Gfx::Color{1.f, 1.f, 1.f, 0.5f};
+	auto c = duoRoleColor(int(key.flags.deviceId));
+	if(!turbo)
+		return c;
+	auto lift = [](float v) { return v + 0.15f > 1.f ? 1.f : v + 0.15f; };
+	return {lift(c.r), lift(c.g), lift(c.b), c.a};
+}
+
 struct VControllerGamepadFlags
 {
 	uint8_t
@@ -561,9 +620,13 @@ struct VControllerGamepadFlags
 	static constexpr VControllerGamepadFlags all() { return {.dpad = true, .buttons = true}; }
 };
 
+// Per-button duo trailer: int16 sizeMM100x, uint8 ownAlpha, uint8 duoFlags, uint8 duoRole.
+inline constexpr size_t uiButtonDuoExtraBytes = sizeof(int16_t) + sizeof(uint8_t) * 3;
+
 class VController : public EmuAppHelper
 {
 public:
+	static constexpr int maxDuoPlayers = EmuEx::maxDuoPlayers;
 	static constexpr KeyInfo TOGGLE_KEYBOARD = KeyInfo::appKey(254);
 	static constexpr KeyInfo CHANGE_KEYBOARD_MODE = KeyInfo::appKey(255);
 	using KbMap = VControllerKeyboard::KbMap;
@@ -644,6 +707,58 @@ public:
 	WRect layoutBounds() const;
 	void updateSystemKeys(KeyInfo, bool isPushed);
 	void resetHighlightedKeys();
+	bool twoPlayerControls() const { return twoPlayer_; }
+	void setTwoPlayerControls(bool on);
+	// 1, 2, or 4. Does not clear the Mode-button removal flag.
+	void setPlayerControls(int players);
+	int playerControls() const { return playerControls_; }
+	int activePlayerCount() const;
+	DuoLayout duoLayout() const { return duoLayout_; }
+	void setDuoLayout(DuoLayout layout);
+	bool showSharedFaceRow() const { return showSharedRow_; }
+	void setShowSharedFaceRow(bool on);
+	int playerFaceSizeMM100x(int player) const;
+	void setPlayerFaceSizeMM100x(int player, int mm100x);
+	int sharedFaceSizeMM100x() const { return sharedSize_; }
+	void setSharedFaceSizeMM100x(int mm100x);
+	int playerOpacity(int player) const;
+	void setPlayerOpacity(int player, uint8_t alpha);
+	int sharedOpacity() const { return sharedAlpha_; }
+	void setSharedOpacity(uint8_t alpha);
+	bool lockPlayerSizes() const { return lockPlayerSizes_; }
+	void setLockPlayerSizes(bool on);
+	int activeGamepadLayoutIndex() const;
+	int videoBottomInsetPx() const;
+	bool duoPositionsCustomized() const { return duoCustomized_; }
+	void noteDuoDrag();
+	VControllerElement &addDuoButton(KeyInfo key, int16_t sizeMM100x, uint8_t playerSet, uint8_t role);
+	VControllerElement &addDuoDPad(std::span<const KeyInfo, 4> keys, int16_t sizeMM100x, uint8_t playerSet, uint8_t role);
+	void setDuoPosition(VControllerElement &elem, int layoutIdx, _2DOrigin origin, float xMm, float yMm);
+	void setVideoBottomInsetMM(int layout, float mm);
+	// resetToDefault replaces the Mode button with a fresh SHOWN one at the
+	// default position. Otherwise an existing button keeps its position and
+	// state (HIDDEN stays hidden).
+	void ensureDuoModeButton(bool resetToDefault);
+	void syncDuoModeButton();
+	void rebuildDuoIfNeeded();
+	// Writes the config. The touch-layout screens call this as they close
+	// so a kill before process exit does not drop the edit.
+	void onLayoutEditorClosed();
+	// Remember that the user deleted the Toggle Control Layout button.
+	// Adding that key back clears the flag. Default false, so old configs
+	// that never wrote the field still show the button.
+	void noteUIButtonRemoved(KeyInfo key);
+	void noteUIButtonAdded(KeyInfo key);
+	bool uiElementIsDuoModeButton(const VControllerElement &) const;
+	bool modeButtonRemoved() const { return modeButtonRemoved_; }
+	bool playerSetWasEmptied(int player) const;
+	bool hasRealPlayerElements(int player) const;
+	void ensureEmptyPlayerMarker(int player);
+	uint8_t emptiedPlayerMask() const;
+	uint8_t presentPlayerMask() const;
+	void buildGenericQuadSets();
+	void layoutGenericQuadSets(uint8_t onlyPlayers = 0);
+	void refreshGenericQuadSizes();
 
 private:
 	ApplicationContext appCtx{};
@@ -665,6 +780,20 @@ private:
 	static constexpr auto DEFAULT_GAMEPAD_CONTROLS_VISIBILITY{Config::envIsLinux ? VControllerVisibility::OFF : VControllerVisibility::AUTO};
 	VControllerVisibility gamepadControlsVisibility_{DEFAULT_GAMEPAD_CONTROLS_VISIBILITY};
 	int8_t inputPlayer_{};
+	bool twoPlayer_{true};
+	int8_t playerControls_{2};
+	bool modeButtonRemoved_{};
+	DuoLayout duoLayout_{DuoLayout::Joint};
+	bool showSharedRow_{};
+	bool duoCustomized_{};
+	bool duoV3Loaded_{};
+	bool duoV3ElementsLoaded_{};
+	std::array<int16_t, 4> playerSize_{1000, 1000, 1000, 1000};
+	int16_t sharedSize_{1000};
+	std::array<uint8_t, 4> playerAlpha_{uint8_t(255 * .5f), uint8_t(255 * .5f), uint8_t(255 * .5f), uint8_t(255 * .5f)};
+	uint8_t sharedAlpha_{uint8_t(255 * .4f)};
+	bool lockPlayerSizes_{};
+	float bottomInsetMM_[2]{};
 	bool physicalControlsPresent{};
 	bool gamepadIsVisible{gamepadControlsVisibility_ != VControllerVisibility::OFF};
 	VControllerGamepadFlags gamepadDisabledFlags{};
@@ -679,6 +808,11 @@ private:
 	std::array<KeyInfo, 2> findGamepadElements(WPt pos);
 	KeyInfo keyboardKeyFromPointer(const Input::MotionEvent &);
 	void applyButtonSize();
+	void resetEmulatedDeviceGroups(bool keepEmptied);
+	void supplementMissingPlayers();
+	void applyEmptiedMask(uint8_t mask);
+	void bindElementToItsPlayer(VControllerElement &) const;
+	uint8_t alphaForSet(uint8_t setField) const;
 	void resetEmulatedDevicePositions(std::vector<VControllerElement> &) const;
 	std::vector<VControllerElement> defaultEmulatedDeviceGroups() const;
 	void resetUIPositions(std::vector<VControllerElement> &) const;
@@ -689,6 +823,8 @@ private:
 	int uiButtonPixelSize() const;
 	void writeDeviceButtonsConfig(FileIO &) const;
 	void writeUIButtonsConfig(FileIO &) const;
+	void writeDuoButtonsConfig(FileIO &) const;
+	void placeElement(VControllerElement &, int layoutIdx);
 };
 
 }
