@@ -458,6 +458,105 @@ static void caseI_readdNonModeAfterRemovingAll(Ctx &t)
 	t.check(countDuoButtons(vc3) == 0, "after 2nd relaunch: Duo button came back");
 }
 
+// ============================== A2 / G2: real fresh-install UI set ==============================
+// MIRRORED from EmuFramework/src/vcontrols/VController.cc:1214 defaultUIGroups():
+//   add(uiElements, rightUIComponents); add(uiElements, leftUIComponents) (TOUCH_DEVICES),
+// with AppKeyCode.hh:116-120: rightUIKeys{openMenu} @ RT2DO, leftUIKeys{toggleFastForward, rewind} @ LT2DO,
+// and add() (VController.cc:1283) = emplace VControllerUIButtonGroup(keyCodes, layoutOrigin).
+// (The older SIMULATED VController::defaultUIGroups() used by D/E is left unchanged.)
+inline std::vector<VControllerElement> realFreshInstallUIGroups()
+{
+	std::vector<VControllerElement> v;
+	v.emplace_back(std::in_place_type<VControllerUIButtonGroup>, VControllerUIButtonGroup::Config{{KeyInfo::appKey(AppKeyCode::openMenu)}, {1, RT2DO}});
+	v.back().layoutPos[0] = v.back().layoutPos[1] = {RT2DO, {0, 0}};
+	v.emplace_back(std::in_place_type<VControllerUIButtonGroup>, VControllerUIButtonGroup::Config{{KeyInfo::appKey(AppKeyCode::toggleFastForward), KeyInfo::appKey(AppKeyCode::rewind)}, {1, LT2DO}});
+	v.back().layoutPos[0] = v.back().layoutPos[1] = {LT2DO, {0, 0}};
+	return v;
+}
+// Fresh install as on a device: default UI groups, then the REAL configure() (syncDuoModeButton adds Mode).
+inline VController makeRealDefaultController()
+{
+	VController vc; vc.twoPlayer_ = true; vc.uiElements = realFreshInstallUIGroups();
+	launch(vc);
+	return vc;
+}
+struct UISnap { std::vector<KeyInfo> keys; VControllerLayoutPosition pos[2]; VControllerState state; };
+inline std::vector<UISnap> nonModeUI(const VController &vc)
+{
+	std::vector<UISnap> out;
+	for(auto &e : vc.uiElements)
+	{
+		if(isDuoModeButton(e)) continue;
+		UISnap s; if(auto *g = e.uiButtonGroup()) for(auto &b : g->buttons) s.keys.push_back(b.key);
+		s.pos[0] = e.layoutPos[0]; s.pos[1] = e.layoutPos[1]; s.state = e.state; out.push_back(s);
+	}
+	return out;
+}
+inline bool sameUI(const std::vector<UISnap> &a, const std::vector<UISnap> &b)
+{
+	if(a.size() != b.size()) return false;
+	for(size_t i = 0; i < a.size(); i++)
+		for(int j = 0; j < 2; j++)
+			if(a[i].keys != b[i].keys || a[i].state != b[i].state || !(a[i].pos[j].origin == b[i].pos[j].origin) || !(a[i].pos[j].pos == b[i].pos[j].pos)) return false;
+	return true;
+}
+// duoFlags of each UI element as stored in the SAVED key-113 bytes: the PR #2 trailer is
+// N x (int16 sizeMM100x, u8 ownAlpha, u8 duoFlags, u8 duoRole) at the end of the block
+// (VController.cc:1018-1025). Returns empty if the block has no such trailer (e.g. master).
+inline std::vector<uint8_t> savedDuoFlags(const ConfigBlob &b)
+{
+	if(b.bytes.size() < 6) return {};
+	size_t n = b.bytes[5], end = b.bytes.size();
+	if(!n || end < 6 + n * 5) return {};
+	std::vector<uint8_t> f;
+	for(size_t i = 0; i < n; i++) f.push_back(b.bytes[end - (n - i) * 5 + 3]);
+	return f;
+}
+inline int savedBit7Count(const ConfigBlob &b) { int c = 0; for(auto f : savedDuoFlags(b)) if(f & 0x80) c++; return c; }
+inline int memBit7Count(const VController &vc) { int c = 0; for(auto &e : vc.uiElements) if(!isDuoModeButton(e) && (e.duoFlags & 0x80)) c++; return c; }
+
+// Shared body for A2/G2: after removal (and optional layout switch), save -> relaunch x2 with checks.
+static void removedPersistsWithDefaultUI(Ctx &t, VController &vc, const std::vector<UISnap> &others)
+{
+	for(int round = 1; round <= 2; round++)
+	{
+		auto saved = saveUIButtons(vc);
+		auto r = std::to_string(round);
+		t.check(savedBit7Count(saved) >= 1, "save " + r + ": no remaining UI button has duoFlags bit 7 (0x80) in the saved key-113 bytes");
+		auto next = loadAndConfigure(saved, vc.twoPlayer_, vc.duoLayout_);
+		t.check(countDuoButtons(next) == 0, "relaunch " + r + ": Mode button came back (count=" + std::to_string(countDuoButtons(next)) + ")");
+		t.check(sameUI(nonModeUI(next), others), "relaunch " + r + ": other default UI buttons changed (count " + std::to_string(nonModeUI(next).size()) + " vs " + std::to_string(others.size()) + ", or keys/positions/state differ)");
+		t.check(memBit7Count(next) >= 1, "relaunch " + r + ": bit 7 lost on the reloaded UI buttons");
+		vc = std::move(next);
+	}
+}
+
+// A2: real default UI set -> remove Mode (real remove()) -> save -> relaunch x2
+static void caseA2_removeWithDefaultUI(Ctx &t)
+{
+	auto vc = makeRealDefaultController();
+	if(!t.check(countDuoButtons(vc) == 1, "precondition: fresh install should have 1 Mode button")) return;
+	auto others = nonModeUI(vc);
+	if(!t.check(others.size() == 2, "precondition: fresh install should have 2 other UI groups (Open Menu, Fast-forward/Rewind), got " + std::to_string(others.size()))) return;
+	t.check(removeDuoButton(vc), "remove failed");
+	t.check(countDuoButtons(vc) == 0, "Mode button still present right after remove");
+	removedPersistsWithDefaultUI(t, vc, others);
+}
+
+// G2: real default UI set -> remove Mode -> Joint/Separate (real setDuoLayout) -> save -> relaunch x2
+static void caseG2_removeToggleWithDefaultUI(Ctx &t)
+{
+	auto vc = makeRealDefaultController();
+	if(!t.check(countDuoButtons(vc) == 1, "precondition: fresh install should have 1 Mode button")) return;
+	auto others = nonModeUI(vc);
+	t.check(removeDuoButton(vc), "remove failed");
+	toggleJointSeparate(vc);
+	t.check(countDuoButtons(vc) == 0, "right after Joint/Separate switch: Mode button came back while running");
+	auto layout = vc.duoLayout_;
+	removedPersistsWithDefaultUI(t, vc, others);
+	t.check(vc.duoLayout_ == layout, "duoLayout_ changed across relaunch");
+}
+
 static const std::vector<Case> CASES
 {
 	{"A remove -> relaunch -> stays removed", caseA_removeThenRelaunch},
@@ -469,6 +568,8 @@ static const std::vector<Case> CASES
 	{"G remove -> Joint/Separate -> relaunch -> stays removed", caseG_removeToggleLayoutRelaunch},
 	{"H remove all UI buttons -> relaunch -> no crash", caseH_allUIButtonsRemoved},
 	{"I remove all -> relaunch -> add non-Mode group -> relaunch -> Mode stays removed [known issue]", caseI_readdNonModeAfterRemovingAll, true},
+	{"A2 default UI set: remove Mode -> relaunch x2 -> stays removed, others intact, bit7 saved", caseA2_removeWithDefaultUI},
+	{"G2 default UI set: remove Mode -> Joint/Separate -> relaunch x2 -> stays removed, bit7 saved", caseG2_removeToggleWithDefaultUI},
 	// edge cases go here
 };
 
@@ -481,7 +582,7 @@ int main(int argc, char **argv)
 	for(auto &c : CASES)
 	{
 		if(argc > 1 && std::string(c.name).find(argv[1]) == std::string::npos) continue;
-		std::string id(c.name, 1);
+		std::string id(c.name, std::string_view(c.name).find(' '));
 		currentCaseId = id.c_str();
 		dumpSeq = 0;
 		Ctx t;

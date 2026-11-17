@@ -62,3 +62,16 @@ the TouchConfigView/PlaceVControlsView onDismiss -> onLayoutEditorClosed wiring,
 - **Flags:** `-std=c++23 -O0 -g -Wall -Werror -Wno-unused` (`-Werror` like the project; quiet on all trees).
 - **tools/:** `neocfg.py` from teammate 3 (PR #2 5d49d12 format, `MODE_REMOVED(bit7)`), samples in
   `tools/samples-pr2b/`.
+
+## p6: A2 / G2 (real fresh-install UI set, bit 7 path)
+
+A–H start with the Mode button as the only UI group, so removal is persisted as an empty layout.
+A2/G2 start from the fresh-install set of the real app (`defaultUIGroups()`, VController.cc:1214:
+`rightUIComponents` = Open Menu @ RT2DO, `leftUIComponents` = toggleFastForward+rewind @ LT2DO,
+AppKeyCode.hh:116-120; mirrored in `realFreshInstallUIGroups()`), then the real `configure()` adds Mode.
+- **A2:** remove Mode (real `remove()`) -> save -> relaunch x2.
+- **G2:** same, with Joint/Separate (real `setDuoLayout`) before saving.
+Each save/relaunch asserts: Mode absent; the other UI groups keep count/keys/positions/state; at least one
+saved element has `duoFlags & 0x80` in the trailer bytes of the saved key 113 (read from the bytes, not
+memory), and bit 7 is still set after reload. These are normal cases (not known issues). Dumps:
+`A2-*.cfg`, `G2-*.cfg` (dump names now use the first word of the case name).
