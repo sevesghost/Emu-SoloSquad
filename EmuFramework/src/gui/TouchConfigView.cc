@@ -206,6 +206,8 @@ public:
 			}
 		} {}
 
+	void onDismiss() final { vCtrl.onLayoutEditorClosed(); }
+
 	void draw(Gfx::RendererCommands &__restrict__ cmds, ViewDrawParams) const final
 	{
 		vCtrl.draw(cmds, elem, true);
@@ -280,7 +282,10 @@ public:
 						multiChoiceView->appendItem(app.inputManager.toString(k),
 							[this, k](View &parentView)
 							{
+								auto previous = btn.key;
 								btn.key = k;
+								vCtrl.noteUIButtonRemoved(previous);
+								vCtrl.noteUIButtonAdded(k);
 								btn.enabled = vCtrl.keyIsEnabled(k);
 								key.set2ndName(this->app().inputManager.toString(k));
 								turbo.setBoolValue(k.flags.turbo, *this);
@@ -329,6 +334,8 @@ public:
 					{
 						.onYes = [this]
 						{
+							auto key = btn.key;
+							vCtrl.noteUIButtonRemoved(key);
 							elem.remove(btn);
 							onChange.callSafe();
 							vCtrl.place();
@@ -340,6 +347,8 @@ public:
 	{
 		reloadItems();
 	}
+
+	void onDismiss() final { vCtrl.onLayoutEditorClosed(); }
 
 private:
 	VController &vCtrl;
@@ -583,6 +592,7 @@ public:
 							[this, k](View &parentView, const Input::Event&)
 							{
 								elem.add(k);
+								vCtrl.noteUIButtonAdded(k);
 								vCtrl.update(elem);
 								vCtrl.place();
 								confView.reloadItems();
@@ -627,6 +637,8 @@ public:
 	{
 		vCtrl.applyButtonAlpha(.75);
 	}
+
+	void onDismiss() final { vCtrl.onLayoutEditorClosed(); }
 
 private:
 	VController &vCtrl;
@@ -708,6 +720,8 @@ public:
 			leftUIComponents.name, attach,
 			[this]{ add(leftUIComponents); });
 	}
+
+	void onDismiss() final { vCtrl.onLayoutEditorClosed(); }
 
 private:
 	VController &vCtrl;
@@ -1252,6 +1266,11 @@ void TouchConfigView::reloadItems()
 void TouchConfigView::onShow()
 {
 	vController.applyButtonAlpha(.75);
+}
+
+void TouchConfigView::onDismiss()
+{
+	vController.onLayoutEditorClosed();
 }
 
 }

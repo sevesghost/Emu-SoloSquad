@@ -1,6 +1,7 @@
 #include <emuframework/VController.hh>
 #include <emuframework/EmuApp.hh>
 #include <emuframework/AppKeyCode.hh>
+#include <emuframework/DuoModeButton.hh>
 
 namespace EmuEx
 {
@@ -60,6 +61,10 @@ void VController::setTwoPlayerControls(bool on)
 	twoPlayer_ = on;
 	duoCustomized_ = false;
 	resetEmulatedDeviceGroups();
+	// Off then on brings the Mode button back, same as rebuilding the
+	// gamepad groups. A removal only sticks across relaunch.
+	if(on)
+		duoModeButtonRemoved_ = false;
 	syncDuoModeButton();
 	if(hasWindow())
 	{
@@ -191,20 +196,67 @@ void VController::noteDuoDrag()
 	duoCustomized_ = true;
 }
 
-void VController::syncDuoModeButton()
+static bool isDuoModeKey(KeyInfo key)
 {
-	std::erase_if(uiElements, [](const VControllerElement &elem)
+	return key.flags.appCode && AppKeyCode(key.codes[0]) == AppKeyCode::toggleDuoLayout;
+}
+
+bool VController::uiElementIsDuoModeButton(const VControllerElement &elem) const
+{
+	auto *grp = elem.uiButtonGroup();
+	if(!grp)
+		return false;
+	return std::ranges::any_of(grp->buttons, [](const VControllerButton &btn)
 	{
-		auto *grp = elem.uiButtonGroup();
-		if(!grp)
-			return false;
-		return std::ranges::any_of(grp->buttons, [](const VControllerButton &btn)
-		{
-			return btn.key.flags.appCode && AppKeyCode(btn.key.codes[0]) == AppKeyCode::toggleDuoLayout;
-		});
+		return isDuoModeKey(btn.key);
 	});
-	if(!twoPlayer_)
-		return;
+}
+
+void VController::noteUIButtonRemoved(KeyInfo key)
+{
+	if(isDuoModeKey(key))
+		duoModeButtonRemoved_ = true;
+}
+
+void VController::noteUIButtonAdded(KeyInfo key)
+{
+	if(isDuoModeKey(key))
+		duoModeButtonRemoved_ = false;
+}
+
+void VController::onLayoutEditorClosed()
+{
+	app().saveConfigFile(appContext());
+}
+
+void VController::ensureDuoModeButton(bool resetToDefault)
+{
+	if(resetToDefault)
+		duoModeButtonRemoved_ = false;
+	bool present = std::ranges::any_of(uiElements, [&](const VControllerElement &elem)
+	{
+		return uiElementIsDuoModeButton(elem);
+	});
+	auto eraseModeButton = [&]()
+	{
+		std::erase_if(uiElements, [&](const VControllerElement &elem)
+		{
+			return uiElementIsDuoModeButton(elem);
+		});
+	};
+	switch(decideDuoModeButton(twoPlayer_, duoModeButtonRemoved_, present, resetToDefault))
+	{
+		case DuoModeButtonSync::Keep:
+			// Do not call setDuoPosition and do not change state. A moved
+			// anchor and HIDDEN/OFF survive configure() after relaunch.
+			return;
+		case DuoModeButtonSync::Erase:
+			eraseModeButton();
+			return;
+		case DuoModeButtonSync::Create:
+			eraseModeButton();
+			break;
+	}
 	VControllerUIButtonGroup::Config conf;
 	conf.keys = {KeyInfo::appKey(AppKeyCode::toggleDuoLayout)};
 	conf.layout.rowItems = 1;
@@ -218,6 +270,11 @@ void VController::syncDuoModeButton()
 	setDuoPosition(elem, 1, CT2DO, 0.f, 30.f);
 	if(hasWindow())
 		update(elem);
+}
+
+void VController::syncDuoModeButton()
+{
+	ensureDuoModeButton(false);
 }
 
 void VController::rebuildDuoIfNeeded()

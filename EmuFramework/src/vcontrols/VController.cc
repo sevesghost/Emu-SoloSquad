@@ -740,6 +740,10 @@ static bool readVControllerElement(InputManager &mgr, MapIO &io, std::vector<VCo
 	return true;
 }
 
+// sizeMM100x, ownAlpha, duoFlags, duoRole. Appended after the v2 UI
+// elements so older builds, which stop at `state`, still load.
+constexpr size_t uiButtonDuoExtraBytes = sizeof(int16_t) + sizeof(uint8_t) * 3;
+
 static bool readDuoExtra(MapIO &io, VControllerElement &elem)
 {
 	elem.sizeMM100x = io.get<int16_t>();
@@ -747,6 +751,14 @@ static bool readDuoExtra(MapIO &io, VControllerElement &elem)
 	elem.duoFlags = io.get<uint8_t>();
 	elem.duoRole = io.get<uint8_t>();
 	return true;
+}
+
+static void writeDuoExtra(FileIO &io, const VControllerElement &elem)
+{
+	io.put(elem.sizeMM100x);
+	io.put(elem.ownAlpha);
+	io.put(elem.duoFlags);
+	io.put(elem.duoRole);
 }
 
 bool VController::readConfig(EmuApp &app, MapIO &io, unsigned key)
@@ -830,6 +842,34 @@ bool VController::readConfig(EmuApp &app, MapIO &io, unsigned key)
 				if(!readVControllerElement(app.inputManager, io, uiElements, true))
 					return false;
 			}
+			// Optional trailer. Older files end after `state` and leave the
+			// Mode button present. New files append:
+			//   uint8 removed (1 = user deleted the Mode button)
+			//   then sizeMM100x, ownAlpha, duoFlags, duoRole per element
+			// so a moved position stays in millimetres and HIDDEN stays hidden.
+			auto pos = io.tell();
+			size_t remaining = (pos >= 0 && size_t(pos) <= io.size()) ? io.size() - size_t(pos) : 0;
+			size_t trailerBytes = 1 + size_t(elements) * uiButtonDuoExtraBytes;
+			if(remaining >= trailerBytes)
+			{
+				duoModeButtonRemoved_ = io.get<uint8_t>() != 0;
+				for(auto &elem : uiElements)
+					readDuoExtra(io, elem);
+			}
+			else
+			{
+				for(auto &elem : uiElements)
+				{
+					auto *grp = elem.uiButtonGroup();
+					// Only the generated Mode button was stored as millimetres*10
+					// with the flag omitted. Other UI groups use pixel anchors.
+					if(!grp || grp->buttons.size() != 1 || !uiElementIsDuoModeButton(elem))
+						continue;
+					elem.duoFlags |= VControllerElement::DUO_POS_MM;
+					if(!elem.sizeMM100x)
+						elem.sizeMM100x = 900;
+				}
+			}
 			return true;
 		}
 	}
@@ -874,12 +914,7 @@ static void writeToConfig(const VControllerElement &e, FileIO &io, bool duoExtra
 	io.put(e.layoutPos[1].origin.pack());
 	io.put(e.state);
 	if(duoExtra)
-	{
-		io.put(e.sizeMM100x);
-		io.put(e.ownAlpha);
-		io.put(e.duoFlags);
-		io.put(e.duoRole);
-	}
+		writeDuoExtra(io, e);
 }
 
 static size_t configDataSizeBytes(const std::vector<VControllerElement> &elems, bool savingUIElems)
@@ -894,6 +929,8 @@ static size_t configDataSizeBytes(const std::vector<VControllerElement> &elems, 
 		bytes++; // element type
 		bytes += e.configSize();
 	}
+	if(savingUIElems)
+		bytes += 1 + elems.size() * uiButtonDuoExtraBytes; // removed flag + per-element mm fields
 	return bytes;
 }
 
@@ -964,6 +1001,8 @@ void VController::writeUIButtonsConfig(FileIO &io) const
 	io.put(uint8_t(std::min(uiElements.size(), 255zu)));
 	log.info("wrote UI button data ({} bytes) with {} element(s)", bytes, uiElements.size());
 	for(const auto &e : uiElements) { writeToConfig(e, io); }
+	io.put(uint8_t(duoModeButtonRemoved_ ? 1 : 0));
+	for(const auto &e : uiElements) { writeDuoExtra(io, e); }
 }
 
 void VController::writeConfig(FileIO &io) const
@@ -1134,7 +1173,7 @@ void VController::resetUIGroups()
 {
 	log.info("setting default UI button groups");
 	uiElements = defaultUIGroups();
-	syncDuoModeButton();
+	ensureDuoModeButton(true);
 }
 
 std::vector<VControllerElement> VController::defaultUIGroups() const
@@ -1254,6 +1293,8 @@ void VController::update(VControllerElement &elem) const
 
 bool VController::remove(VControllerElement &elemToErase)
 {
+	if(uiElementIsDuoModeButton(elemToErase))
+		duoModeButtonRemoved_ = true;
 	return std::erase_if(gpElements, [&](auto &e) { return &e == &elemToErase; }) ||
 		std::erase_if(uiElements, [&](auto &e) { return &e == &elemToErase; });
 }

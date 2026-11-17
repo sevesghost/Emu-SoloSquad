@@ -39,6 +39,7 @@ public:
 	void draw(Gfx::RendererCommands&__restrict__, ViewDrawParams p = {}) const final;
 	void reloadItems();
 	void onShow() final;
+	void onDismiss() final;
 
 protected:
 	VController &vController;
