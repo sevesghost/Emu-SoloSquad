@@ -211,11 +211,32 @@ static void caseB_addBackThenRelaunch(Ctx &t)
 }
 
 // C: move + hide, reload -> mm position, duoFlags, sizeMM100x, state match (landscape + portrait)
-static void caseC_moveHideRelaunch(Ctx &)
+static void caseC_moveHideRelaunch(Ctx &t)
 {
-	// TODO((ตก) 4): use setDuoButtonPosMM(vc, *e, 0/1, ...), setDuoButtonState(*e, HIDDEN),
-	// relaunch(vc), then compare layoutPos[0]/[1], duoFlags & DUO_POS_MM, sizeMM100x, state.
-	throw Skip{"TODO: owned by (ตก) 4"};
+	auto vc = makeDefaultController();
+	auto *e = findDuoButton(vc);
+	if(!t.check(e != nullptr, "precondition: fresh install should have a Duo button")) return;
+	setDuoButtonPosMM(vc, *e, 0, RB2DO, -15.f, -12.f); // landscape
+	setDuoButtonPosMM(vc, *e, 1, LC2DO, 8.f, 20.f);    // portrait
+	e->sizeMM100x = 1250;                              // resized in the editor
+	setDuoButtonState(*e, VControllerState::HIDDEN);
+	const auto want0 = e->layoutPos[0], want1 = e->layoutPos[1];
+	const auto wantFlags = e->duoFlags;
+	t.check(wantFlags & VControllerElement::DUO_POS_MM, "precondition: setDuoPosition should set DUO_POS_MM");
+	for(int round = 1; round <= 2; round++)
+	{
+		vc = relaunch(vc);
+		auto tag = "after relaunch #" + std::to_string(round) + ": ";
+		if(!t.check(countDuoButtons(vc) == 1, tag + "expected 1 Duo button, got " + std::to_string(countDuoButtons(vc)))) return;
+		auto *e2 = findDuoButton(vc);
+		t.check(e2->layoutPos[0].origin == want0.origin && e2->layoutPos[0].pos == want0.pos,
+			tag + "landscape mm position not kept (origin=" + std::to_string(e2->layoutPos[0].origin.v) + " x=" + std::to_string(e2->layoutPos[0].pos.x) + " y=" + std::to_string(e2->layoutPos[0].pos.y) + ")");
+		t.check(e2->layoutPos[1].origin == want1.origin && e2->layoutPos[1].pos == want1.pos, tag + "portrait mm position not kept");
+		t.check(e2->duoFlags & VControllerElement::DUO_POS_MM, tag + "DUO_POS_MM lost: mm*10 position would be read as pixels");
+		t.check(e2->duoFlags == wantFlags, tag + "duoFlags changed (" + std::to_string(wantFlags) + " -> " + std::to_string(e2->duoFlags) + ")");
+		t.check(e2->sizeMM100x == 1250, tag + "sizeMM100x not kept (got " + std::to_string(e2->sizeMM100x) + ")");
+		t.check(e2->state == VControllerState::HIDDEN, tag + "state not kept (expected HIDDEN, got " + std::to_string(int(e2->state)) + ")");
+	}
 }
 
 // D: Reset UI Groups restores the button with defaults
@@ -238,10 +259,25 @@ static void caseD_resetUIGroups(Ctx &t)
 }
 
 // E: old config without this button -> button shown with defaults
-static void caseE_oldConfigWithoutButton(Ctx &)
+static void caseE_oldConfigWithoutButton(Ctx &t)
 {
-	// TODO((ตก) 4): auto vc = loadAndConfigure(oldConfigBlobWithoutDuoButton()); compare with defaultDuoButton().
-	throw Skip{"TODO: owned by (ตก) 4"};
+	auto def = defaultDuoButton();
+	auto checkDefault = [&](VController &vc, std::string tag)
+	{
+		if(!t.check(countDuoButtons(vc) == 1, tag + "expected 1 Duo button, got " + std::to_string(countDuoButtons(vc)))) return;
+		auto *e = findDuoButton(vc);
+		t.check(e->state == VControllerState::SHOWN, tag + "state not SHOWN");
+		t.check(e->layoutPos[0].origin == def.pos[0].origin && e->layoutPos[0].pos == def.pos[0].pos
+			&& e->layoutPos[1].origin == def.pos[1].origin && e->layoutPos[1].pos == def.pos[1].pos, tag + "position not default");
+		t.check(e->duoFlags == def.duoFlags && e->sizeMM100x == def.sizeMM100x, tag + "duoFlags/size not default");
+	};
+	// E1: key 113 present, written by a build before the Duo button existed
+	auto vc = loadAndConfigure(oldConfigBlobWithoutDuoButton());
+	checkDefault(vc, "old key 113 without button: ");
+	t.check(countDuoButtons(relaunch(vc)) == 1, "old key 113 without button: button gone after a 2nd relaunch");
+	// E2: no key 113 at all
+	auto vc2 = loadAndConfigure(ConfigBlob{});
+	checkDefault(vc2, "no key 113: ");
 }
 
 // F: leaving the layout editor writes config immediately
@@ -252,6 +288,35 @@ static void caseF_saveOnLeavingEditor(Ctx &)
 	throw Skip{"not host-testable: TouchConfigView needs GUI; manual step F in MANUAL.md"};
 }
 
+// G (edge, in main scope): remove -> switch Joint/Separate -> relaunch -> stays removed
+static void caseG_removeToggleLayoutRelaunch(Ctx &t)
+{
+	auto vc = makeDefaultController();
+	removeDuoButton(vc);
+	toggleJointSeparate(vc);
+	t.check(countDuoButtons(vc) == 0, "right after Joint/Separate switch: Duo button came back while running");
+	auto layout = vc.duoLayout_;
+	auto vc2 = relaunch(vc);
+	t.check(vc2.duoLayout_ == layout, "duoLayout_ changed across relaunch");
+	t.check(countDuoButtons(vc2) == 0, "after switch + relaunch: Duo button came back (count=" + std::to_string(countDuoButtons(vc2)) + ")");
+	toggleJointSeparate(vc2);
+	auto vc3 = relaunch(vc2);
+	t.check(countDuoButtons(vc3) == 0, "after switching back + relaunch: Duo button came back");
+}
+
+// H (edge, in main scope): user removes every UI button -> save -> relaunch must not crash
+// (configure() reads uiElements[0] for the v1 sentinel; empty list must be safe)
+static void caseH_allUIButtonsRemoved(Ctx &t)
+{
+	auto vc = makeDefaultController();
+	vc.uiElements.clear();
+	auto vc2 = relaunch(vc); // an exception/crash here fails the case
+	t.check(countDuoButtons(vc2) == 0, "after removing all UI buttons + relaunch: Duo button came back");
+	t.check(vc2.uiElements.empty(), "after removing all UI buttons + relaunch: " + std::to_string(vc2.uiElements.size()) + " UI elements reappeared");
+	auto vc3 = relaunch(vc2);
+	t.check(vc3.uiElements.empty(), "after 2nd relaunch: UI elements reappeared");
+}
+
 static const std::vector<Case> CASES
 {
 	{"A remove -> relaunch -> stays removed", caseA_removeThenRelaunch},
@@ -260,6 +325,8 @@ static const std::vector<Case> CASES
 	{"D Reset UI Groups -> button restored", caseD_resetUIGroups},
 	{"E old config without button -> default button", caseE_oldConfigWithoutButton},
 	{"F leave layout editor -> config saved now", caseF_saveOnLeavingEditor},
+	{"G remove -> Joint/Separate -> relaunch -> stays removed", caseG_removeToggleLayoutRelaunch},
+	{"H remove all UI buttons -> relaunch -> no crash", caseH_allUIButtonsRemoved},
 	// edge cases go here
 };
 

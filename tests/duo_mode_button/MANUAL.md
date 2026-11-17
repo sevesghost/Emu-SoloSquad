@@ -20,7 +20,7 @@ F is manual only: `TouchConfigView` is a GUI View and cannot be built on host. I
 (e.g. `VController::onLayoutEditorClosed()` / a `saveConfigNow` hook), an automated case can be added.
 
 ## Not fixed this round — notes only (do NOT fail the PR on these)
-1. **Two-player off → on** (`setTwoPlayerControls`): calls `syncDuoModeButton()` directly; a removed button may reappear. Record behaviour.
-2. **Joint ↔ Separate** (`setDuoLayout`): only calls `resetEmulatedDeviceGroups()`, not sync; button should not reappear while running. Check: remove → switch → relaunch, record result.
-3. **Rewind = 0**: rewind button is hidden via `uiKeyIsEnabled()` (not removed). Remove Mode button with rewind 0 → relaunch → set rewind > 0: rewind button should come back, record whether Mode button does.
-4. **v1 config (sentinel `-1` positions)**: `configure()` calls `resetUIGroups()`; button should show with defaults. Also removing *all* UI buttons (empty `uiElements`) must not crash on launch.
+1. **Two-player off → on** (`setTwoPlayerControls`): by design (north's decision) this calls `syncDuoModeButton()` and the Mode button **comes back** even if the user removed it. Known behaviour, not a bug for this PR.
+2. **Joint ↔ Separate** (`setDuoLayout`): now covered by automated case **G** (remove → switch → relaunch must stay removed). Manual check on device: same steps, also switch back once.
+3. **Rewind = 0**: rewind button is hidden via `uiKeyIsEnabled()` (not removed). Set rewind states = 0 → remove Mode button → relaunch → set rewind > 0: rewind button must come back; Mode button should stay removed. Record result.
+4. **v1 config (sentinel `-1` positions)**: `configure()` calls `resetUIGroups()`; Mode button should show with defaults. Needs a real v1 config file (sample from (ตก) 3). The "remove all UI buttons must not crash" part is automated case **H**.
