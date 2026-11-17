@@ -175,7 +175,7 @@ void layoutCanvas(VController &v, int layout, float W, float H, bool wide)
 	auto findRole = [&](uint8_t role) -> VControllerElement *
 	{
 		for(auto &elem : v.deviceElements())
-			if(elem.duoRole == role)
+			if(elem.duoRole == role && !elem.isEmptiedSetMarker())
 				return &elem;
 		return nullptr;
 	};

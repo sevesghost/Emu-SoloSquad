@@ -48,6 +48,8 @@ protected:
 	DynArray<TextMenuItem> playerItems;
 	MultiChoiceMenuItem player;
 	BoolMenuItem twoPlayers;
+	TextMenuItem playerCountItem[3];
+	MultiChoiceMenuItem playerCount;
 	TextMenuItem duoLayoutItem[2];
 	MultiChoiceMenuItem duoLayout;
 	BoolMenuItem sharedFaceRow;

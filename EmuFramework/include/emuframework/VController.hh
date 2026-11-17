@@ -18,6 +18,7 @@
 #include <emuframework/defs.hh>
 #include <emuframework/EmuAppHelper.hh>
 #include <emuframework/inputDefs.hh>
+#include <emuframework/QuadControls.hh>
 #include <emuframework/EmuViewController.hh>
 #ifndef IG_USE_MODULE_IMAGINE
 #include <imagine/input/inputDefs.hh>
@@ -401,13 +402,20 @@ public:
 	static constexpr uint8_t DUO_POS_MM = 1 << 0;
 	static constexpr uint8_t DUO_FIXED_PLAYER = 1 << 1;
 	static constexpr uint8_t DUO_OWN_ALPHA = 1 << 2;
-	static constexpr uint8_t DUO_PLAYER_SHIFT = 3;
-	static constexpr uint8_t DUO_PLAYER_MASK = 3 << DUO_PLAYER_SHIFT;
+	static constexpr uint8_t DUO_PLAYER_SHIFT = kDuoPlayerShift;
+	static constexpr uint8_t DUO_PLAYER_MASK = kDuoPlayerMask; // bits 3-5
+	static constexpr uint8_t DUO_MODE_REMOVED = kDuoModeRemovedFlag; // bit 7, Mode button only
 
 	constexpr bool posIsMM() const { return duoFlags & DUO_POS_MM; }
 	constexpr bool fixedPlayer() const { return duoFlags & DUO_FIXED_PLAYER; }
 	constexpr bool hasOwnAlpha() const { return duoFlags & DUO_OWN_ALPHA; }
 	constexpr int playerSet() const { return (duoFlags & DUO_PLAYER_MASK) >> DUO_PLAYER_SHIFT; }
+	constexpr int playerIndex() const { return playerIndexFromSet(playerSet()); }
+	constexpr bool isSharedSet() const { return playerSet() == 2; }
+	constexpr bool isEmptiedSetMarker() const
+	{
+		return isEmptiedSetPos(layoutPos[0].pos.x, layoutPos[0].pos.y, layoutPos[1].pos.x, layoutPos[1].pos.y);
+	}
 
 	constexpr auto dPad(this auto&& self) { return std::get_if<VControllerDPad>(&self); }
 	constexpr auto buttonGroup(this auto&& self) { return std::get_if<VControllerButtonGroup>(&self); }
@@ -480,8 +488,7 @@ public:
 		auto label = visit([&](auto &e){ return e.name(mgr); });
 		if(!fixedPlayer())
 			return label;
-		const char *who = playerSet() == 2 ? "Both " : playerSet() == 1 ? "P2 " : "P1 ";
-		return std::string{who} + label;
+		return std::string{playerFaceLabel(playerIndex(), isSharedSet())} + label;
 	}
 
 	void updateMeasurements(const Window &win)
@@ -584,14 +591,22 @@ enum class DuoLayout : uint8_t
 	Joint = 1
 };
 
+inline Gfx::Color duoRoleColor(int role)
+{
+	auto c = duoRoleColorRgba(role);
+	return {c.r, c.g, c.b, c.a};
+}
+
 inline Gfx::Color duoButtonColor(KeyInfo key)
 {
 	const bool turbo = key.flags.turbo;
 	if(key.flags.bothPlayers)
-		return turbo ? Gfx::Color{1.f, 0.80f, 0.20f} : Gfx::Color{1.f, 1.f, 1.f};
-	if(key.flags.deviceId)
-		return turbo ? Gfx::Color{1.f, 0.55f, 0.10f} : Gfx::Color{0.90f, 0.20f, 0.20f};
-	return turbo ? Gfx::Color{0.70f, 0.45f, 1.f} : Gfx::Color{0.20f, 0.60f, 1.f};
+		return turbo ? Gfx::Color{1.f, 0.85f, 0.35f, 0.5f} : Gfx::Color{1.f, 1.f, 1.f, 0.5f};
+	auto c = duoRoleColor(int(key.flags.deviceId));
+	if(!turbo)
+		return c;
+	auto lift = [](float v) { return v + 0.15f > 1.f ? 1.f : v + 0.15f; };
+	return {lift(c.r), lift(c.g), lift(c.b), c.a};
 }
 
 struct VControllerGamepadFlags
@@ -605,9 +620,13 @@ struct VControllerGamepadFlags
 	static constexpr VControllerGamepadFlags all() { return {.dpad = true, .buttons = true}; }
 };
 
+// Per-button duo trailer: int16 sizeMM100x, uint8 ownAlpha, uint8 duoFlags, uint8 duoRole.
+extern constexpr size_t uiButtonDuoExtraBytes;
+
 class VController : public EmuAppHelper
 {
 public:
+	static constexpr int maxDuoPlayers = EmuEx::maxDuoPlayers;
 	static constexpr KeyInfo TOGGLE_KEYBOARD = KeyInfo::appKey(254);
 	static constexpr KeyInfo CHANGE_KEYBOARD_MODE = KeyInfo::appKey(255);
 	using KbMap = VControllerKeyboard::KbMap;
@@ -690,15 +709,19 @@ public:
 	void resetHighlightedKeys();
 	bool twoPlayerControls() const { return twoPlayer_; }
 	void setTwoPlayerControls(bool on);
+	// 1, 2, or 4. Does not clear the Mode-button removal flag.
+	void setPlayerControls(int players);
+	int playerControls() const { return playerControls_; }
+	int activePlayerCount() const;
 	DuoLayout duoLayout() const { return duoLayout_; }
 	void setDuoLayout(DuoLayout layout);
 	bool showSharedFaceRow() const { return showSharedRow_; }
 	void setShowSharedFaceRow(bool on);
-	int playerFaceSizeMM100x(int player) const { return player ? p2Size_ : p1Size_; }
+	int playerFaceSizeMM100x(int player) const;
 	void setPlayerFaceSizeMM100x(int player, int mm100x);
 	int sharedFaceSizeMM100x() const { return sharedSize_; }
 	void setSharedFaceSizeMM100x(int mm100x);
-	int playerOpacity(int player) const { return player ? p2Alpha_ : p1Alpha_; }
+	int playerOpacity(int player) const;
 	void setPlayerOpacity(int player, uint8_t alpha);
 	int sharedOpacity() const { return sharedAlpha_; }
 	void setSharedOpacity(uint8_t alpha);
@@ -727,6 +750,15 @@ public:
 	void noteUIButtonRemoved(KeyInfo key);
 	void noteUIButtonAdded(KeyInfo key);
 	bool uiElementIsDuoModeButton(const VControllerElement &) const;
+	bool modeButtonRemoved() const { return modeButtonRemoved_; }
+	bool playerSetWasEmptied(int player) const;
+	bool hasRealPlayerElements(int player) const;
+	void ensureEmptyPlayerMarker(int player);
+	uint8_t emptiedPlayerMask() const;
+	uint8_t presentPlayerMask() const;
+	void buildGenericQuadSets();
+	void layoutGenericQuadSets();
+	void refreshGenericQuadSizes();
 
 private:
 	ApplicationContext appCtx{};
@@ -749,15 +781,15 @@ private:
 	VControllerVisibility gamepadControlsVisibility_{DEFAULT_GAMEPAD_CONTROLS_VISIBILITY};
 	int8_t inputPlayer_{};
 	bool twoPlayer_{true};
+	int8_t playerControls_{2};
+	bool modeButtonRemoved_{};
 	DuoLayout duoLayout_{DuoLayout::Joint};
 	bool showSharedRow_{};
 	bool duoCustomized_{};
 	bool duoV3Loaded_{};
-	int16_t p1Size_{1000};
-	int16_t p2Size_{1000};
+	std::array<int16_t, 4> playerSize_{1000, 1000, 1000, 1000};
 	int16_t sharedSize_{1000};
-	uint8_t p1Alpha_{uint8_t(255 * .5f)};
-	uint8_t p2Alpha_{uint8_t(255 * .5f)};
+	std::array<uint8_t, 4> playerAlpha_{uint8_t(255 * .5f), uint8_t(255 * .5f), uint8_t(255 * .5f), uint8_t(255 * .5f)};
 	uint8_t sharedAlpha_{uint8_t(255 * .4f)};
 	bool lockPlayerSizes_{};
 	float bottomInsetMM_[2]{};
@@ -775,6 +807,11 @@ private:
 	std::array<KeyInfo, 2> findGamepadElements(WPt pos);
 	KeyInfo keyboardKeyFromPointer(const Input::MotionEvent &);
 	void applyButtonSize();
+	void resetEmulatedDeviceGroups(bool keepEmptied);
+	void supplementMissingPlayers();
+	void applyEmptiedMask(uint8_t mask);
+	void bindElementToItsPlayer(VControllerElement &) const;
+	uint8_t alphaForSet(uint8_t setField) const;
 	void resetEmulatedDevicePositions(std::vector<VControllerElement> &) const;
 	std::vector<VControllerElement> defaultEmulatedDeviceGroups() const;
 	void resetUIPositions(std::vector<VControllerElement> &) const;

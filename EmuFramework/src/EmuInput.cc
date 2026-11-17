@@ -241,10 +241,12 @@ void InputManager::handleSystemKeyInput(EmuApp& app, KeyInfo keyInfo, Input::Act
 			auto child = flags;
 			child.skipHighlight = true;
 			child.allowTurboModifier = false;
-			fan.flags.deviceId = 0;
-			handleSystemKeyInput(app, fan, act, metaState, child);
-			fan.flags.deviceId = 1;
-			handleSystemKeyInput(app, fan, act, metaState, child);
+			int ports = std::max(1, app.defaultVController().activePlayerCount());
+			for(int port = 0; port < ports; ++port)
+			{
+				fan.flags.deviceId = uint8_t(port);
+				handleSystemKeyInput(app, fan, act, metaState, child);
+			}
 			return;
 		}
 	}
@@ -269,10 +271,12 @@ void InputManager::handleSystemKeyInput(EmuApp& app, KeyInfo keyInfo, Input::Act
 			auto child = flags;
 			child.skipHighlight = true;
 			child.allowTurboModifier = false;
-			fan.flags.deviceId = 0;
-			handleSystemKeyInput(app, fan, act, metaState, child);
-			fan.flags.deviceId = 1;
-			handleSystemKeyInput(app, fan, act, metaState, child);
+			int ports = std::max(1, app.defaultVController().activePlayerCount());
+			for(int port = 0; port < ports; ++port)
+			{
+				fan.flags.deviceId = uint8_t(port);
+				handleSystemKeyInput(app, fan, act, metaState, child);
+			}
 			return;
 		}
 		for(auto code : keyInfo.codes)

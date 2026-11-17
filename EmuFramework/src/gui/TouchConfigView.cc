@@ -819,6 +819,25 @@ TouchConfigView::TouchConfigView(ViewAttachParams attach, VController &vCtrl):
 			reloadItems();
 		}
 	},
+	playerCountItem
+	{
+		{"1 Player", attach, {.id = 1}},
+		{"2 Players", attach, {.id = 2}},
+		{"4 Players", attach, {.id = 4}},
+	},
+	playerCount
+	{
+		"On-screen Players", attach,
+		MenuId{vCtrl.playerControls()},
+		playerCountItem,
+		{
+			.defaultItemOnSelect = [this](TextMenuItem &item)
+			{
+				vController.setPlayerControls(item.id);
+				reloadItems();
+			}
+		},
+	},
 	duoLayoutItem
 	{
 		{"Separate", attach, {.id = 0}},
@@ -1184,10 +1203,16 @@ void TouchConfigView::reloadItems()
 	item.emplace_back(&touchCtrl);
 	if(AppMeta::maxPlayers > 1)
 	{
-		player.setActive(!vController.twoPlayerControls());
+		player.setActive(vController.playerControls() <= 1);
 		item.emplace_back(&player);
-		item.emplace_back(&twoPlayers);
-		duoLayout.setActive(vController.twoPlayerControls());
+		if(AppMeta::maxPlayers > 2)
+		{
+			playerCount.setSelected(MenuId{vController.playerControls()}, *this);
+			item.emplace_back(&playerCount);
+		}
+		else
+			item.emplace_back(&twoPlayers);
+		duoLayout.setActive(vController.playerControls() > 1);
 		sharedFaceRow.setActive(vController.twoPlayerControls() && vController.duoLayout() == DuoLayout::Separate);
 		p1Size.setActive(vController.twoPlayerControls());
 		p2Size.setActive(vController.twoPlayerControls() && vController.duoLayout() == DuoLayout::Separate);
