@@ -193,8 +193,13 @@ int main()
 	expect(playersNeedingDefaults(4, oldPresent, oldEmpty) == 0b1100, "old 2-player save gains P3 and P4");
 	expect(playersNeedingDefaults(2, oldPresent, oldEmpty) == 0, "a 2-player system does not invent P3");
 	expect(restoredPlayerCount(false, 0, true, 2) == 2, "NEO-Duo old config stays 2 players");
-	expect(restoredPlayerCount(false, 0, true, 12) == 4, "a 4-player-capable system upgrades an old save");
-	expect(restoredPlayerCount(true, 4, true, 2) == 4, "an explicit count of 4 is restored");
+	expect(restoredPlayerCount(false, 0, true, 12) == 2, "an old 2-player save stays 2 on a 4-player system");
+	expect(restoredPlayerCount(false, 0, false, 12) == 1, "an old 1-player save stays 1");
+	expect(restoredPlayerCount(true, 4, true, 12) == 4, "an explicit count of 4 is restored");
+	expect(onScreenSetActive(0, 2) && onScreenSetActive(1, 2), "P1 and P2 stay active at 2 players");
+	expect(!onScreenSetActive(2, 2) && !onScreenSetActive(3, 2), "P3 and P4 are inactive at 2 players");
+	expect(onScreenSetActive(-1, 2), "a shared control stays active");
+	expect(syncModeButton(2, false, false) == ModeSync::Create, "resetting UI groups brings a removed Mode button back");
 
 	auto onlyP3 = encodeButtons({{2, 1, 1, 1, 2, true, false}}, false, 4);
 	auto p3 = decodeButtons(onlyP3);

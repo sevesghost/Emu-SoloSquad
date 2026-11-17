@@ -100,22 +100,20 @@ constexpr int clampPlayerCount(int players) noexcept
 	return 1;
 }
 
-// Old files have no count byte. A 2-player system stays at 2. A system that
-// can show 4 players grows an old save up to 4 so P3/P4 receive defaults.
-constexpr int restoredPlayerCount(bool hasCountByte, int savedCount, bool multi, int systemMaxPlayers) noexcept
+// Old files have no count byte. A 2-player save stays at 2 and does not turn
+// on multitap. Four players is only the default for a fresh config.
+constexpr int restoredPlayerCount(bool hasCountByte, int savedCount, bool multi, int) noexcept
 {
 	if(hasCountByte)
 		return clampPlayerCount(savedCount);
-	if(!multi)
-		return 1;
-	int cap = systemMaxPlayers < 1 ? 1 : systemMaxPlayers;
-	if(cap > maxDuoPlayers)
-		cap = maxDuoPlayers;
-	if(cap >= 4)
-		return 4;
-	if(cap >= 2)
-		return 2;
-	return 1;
+	return multi ? 2 : 1;
+}
+
+// Shared controls (playerIndex < 0) stay active. Sets at or past the current
+// player count stay in the config but are not drawn or hit-tested.
+constexpr bool onScreenSetActive(int playerIndex, int activeCount) noexcept
+{
+	return playerIndex < activeCount;
 }
 
 constexpr uint8_t duoHeaderFlags(bool multi, bool sharedRow, bool custom, bool modeRemoved) noexcept

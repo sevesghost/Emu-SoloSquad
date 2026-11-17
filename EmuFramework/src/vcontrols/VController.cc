@@ -248,7 +248,7 @@ std::array<KeyInfo, 2> VController::findGamepadElements(WPt pos)
 {
 	for(const auto &gpElem : gpElements)
 	{
-		if(gpElem.isEmptiedSetMarker())
+		if(gpElem.isEmptiedSetMarker() || !onScreenSetActive(gpElem.playerIndex(), activePlayerCount()))
 			continue;
 		auto indices = gpElem.visit(overloaded
 		{
@@ -431,7 +431,7 @@ void VController::draw(Gfx::RendererCommands &__restrict__ cmds, bool showHidden
 	{
 		auto elementIsEnabled = [&](const VControllerElement &e)
 		{
-			if(e.isEmptiedSetMarker())
+			if(e.isEmptiedSetMarker() || !onScreenSetActive(e.playerIndex(), activePlayerCount()))
 				return false;
 			return !((e.buttonGroup() && gamepadDisabledFlags.buttons) ||
 				(e.dPad() && gamepadDisabledFlags.dpad));
@@ -1270,8 +1270,9 @@ void VController::resetUIPositions() { resetUIPositions(uiElements); }
 void VController::resetUIGroups()
 {
 	log.info("setting default UI button groups");
+	modeButtonRemoved_ = false;
 	uiElements = defaultUIGroups();
-	syncDuoModeButton();
+	ensureDuoModeButton(true);
 }
 
 std::vector<VControllerElement> VController::defaultUIGroups() const
