@@ -116,6 +116,17 @@ constexpr bool onScreenSetActive(int playerIndex, int activeCount) noexcept
 	return playerIndex < activeCount;
 }
 
+// onlyPlayers 0 lays out every real set. A non-zero mask lays out just those
+// players, so adding P3/P4 does not move a dragged P1 or P2.
+constexpr bool shouldLayoutPlayer(int playerIndex, uint8_t onlyPlayers) noexcept
+{
+	if(playerIndex < 0 || playerIndex >= maxDuoPlayers)
+		return false;
+	if(!onlyPlayers)
+		return true;
+	return (onlyPlayers & uint8_t(1u << playerIndex)) != 0;
+}
+
 constexpr uint8_t duoHeaderFlags(bool multi, bool sharedRow, bool custom, bool modeRemoved) noexcept
 {
 	return uint8_t((multi ? kDuoFlagMulti : 0)
