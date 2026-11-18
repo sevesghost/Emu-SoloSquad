@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: ["NEO.emu"]
+        image: ["NEO.emu", "Saturn.emu"]
     steps:
     - name: Install build dependencies
       run: |
