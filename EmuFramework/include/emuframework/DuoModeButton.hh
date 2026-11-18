@@ -8,13 +8,16 @@
 	(at your option) any later version. */
 
 #include <cstdint>
+#include <emuframework/QuadControls.hh>
 
 namespace EmuEx
 {
 
 // What configure() should do with the Toggle Control Layout button
 // after a config load. Keep leaves a saved button (and its state and
-// position) alone.
+// position) alone. This shim keeps the original host test compiling.
+// The live controller uses syncModeButton, which still shows the button
+// in 1-player mode unless the user removed it.
 enum class DuoModeButtonSync : uint8_t
 {
 	Keep,

@@ -59,12 +59,13 @@ function(generateConfigHeader target)
 	set(configFilePath "${genDir}/${configFilename}")
 	message("Config Header: ${configFilePath}")
 	# execute_process pipes multiple COMMANDs together, so mkdir must not share
-	# that pipeline or writeConfig.sh races a missing directory on a clean tree.
+	# that pipeline or writeConfig.sh races a missing directory on a clean tree
+	# (android-x86 configure lost gen/ when mkdir raced the writer).
 	file(MAKE_DIRECTORY "${genDir}")
 	execute_process(
 		COMMAND bash ${IMAGINE_PATH}/make/writeConfig.sh "${configFilePath}" "${configEnable}" "${configDisable}" "${configInc}" "${configDefs}"
 		COMMAND_ERROR_IS_FATAL ANY
-	)	
+	)
 	target_include_directories(${target} PRIVATE ${genDir})
 	install(FILES "${configFilePath}" DESTINATION include)
 endFunction()

@@ -79,6 +79,8 @@ struct AppMeta
 	static bool buildDuoGamepad(VController &);
 	static void layoutDuoGamepad(VController &);
 	static void refreshDuoButtonSizes(VController &);
+	// Saturn turns Port 1's multitap on when four on-screen players are active.
+	static void setPort1Multitap(bool enabled);
 
 	// Cheats
 	static std::unique_ptr<View> makeEditCheatsView(ViewAttachParams, CheatsView&);

@@ -1,7 +1,7 @@
 /* Host test for the Toggle Control Layout button decision.
    No Android NDK or Imagine headers:
 
-   g++ -std=c++20 -I EmuFramework/include EmuFramework/tests/duoModeButtonTest.cc -o duoModeButtonTest && ./duoModeButtonTest
+   g++ -std=c++20 -Wall -Werror -I EmuFramework/include EmuFramework/tests/duoModeButtonTest.cc -o duoModeButtonTest && ./duoModeButtonTest
 */
 
 #include <emuframework/DuoModeButton.hh>

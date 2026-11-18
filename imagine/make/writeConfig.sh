@@ -35,4 +35,5 @@ if [ -f $1 ]; then
 fi
 
 echo "Generating Config $1"
-printf "$NEW" > $1
+mkdir -p "$(dirname "$1")"
+printf "$NEW" > "$1"
