@@ -174,9 +174,36 @@ void VController::applyEmptiedMask(uint8_t mask)
 	}
 }
 
+static void clearModeRemoved(std::vector<VControllerElement> &uiElements);
+
 void VController::setTwoPlayerControls(bool on)
 {
-	setPlayerControls(on ? 2 : 1);
+	// Saturn's 1/2/4 menu calls setPlayerControls, so a count change keeps
+	// dragged sets and a removed Mode button. NEO-Duo's boolean toggle swaps
+	// the classic layout and the duo layout. Turning it back on brings the
+	// Mode button back. Joint/Separate does not call this.
+	if(AppMeta::maxPlayers > 2)
+	{
+		setPlayerControls(on ? 2 : 1);
+		return;
+	}
+	if(twoPlayer_ == on)
+		return;
+	twoPlayer_ = on;
+	playerControls_ = int8_t(on ? 2 : 1);
+	duoCustomized_ = false;
+	resetEmulatedDeviceGroups();
+	if(on)
+	{
+		modeButtonRemoved_ = false;
+		clearModeRemoved(uiElements);
+	}
+	syncDuoModeButton();
+	if(hasWindow())
+	{
+		place();
+		app().viewController().placeEmuViews();
+	}
 }
 
 void VController::setPlayerControls(int players)
@@ -205,8 +232,16 @@ void VController::setDuoLayout(DuoLayout layout)
 	if(duoLayout_ == layout)
 		return;
 	duoLayout_ = layout;
-	// Keep every button and the Mode removal flag. Joint/Separate only retargets
-	// anchors when the player has not dragged anything.
+	if(AppMeta::maxPlayers <= 2)
+	{
+		// NEO-Duo rebuilds the default groups. This does not clear a removed
+		// Mode button, so Joint/Separate keeps that choice.
+		duoCustomized_ = false;
+		if(twoPlayer_)
+			resetEmulatedDeviceGroups();
+	}
+	// Quad keeps every button and the Mode removal flag. place() retargets
+	// anchors only when the player has not dragged anything.
 	if(hasWindow())
 	{
 		place();
@@ -405,15 +440,31 @@ void VController::syncDuoModeButton()
 		});
 	};
 	bool present = std::ranges::any_of(uiElements, isMode);
-	switch(syncModeButton(playerControls_, modeButtonRemoved_, present))
+	if(AppMeta::maxPlayers <= 2)
 	{
-		case ModeSync::Erase:
+		// NEO-Duo shows the Mode button only while two-player controls are on.
+		// An existing button keeps its millimetre position and HIDDEN state.
+		// A saved removal stays gone until two-player is turned back on.
+		if(!twoPlayer_)
+		{
 			std::erase_if(uiElements, isMode);
 			return;
-		case ModeSync::Keep:
+		}
+		if(present || modeButtonRemoved_)
 			return;
-		case ModeSync::Create:
-			break;
+	}
+	else
+	{
+		switch(syncModeButton(playerControls_, modeButtonRemoved_, present))
+		{
+			case ModeSync::Erase:
+				std::erase_if(uiElements, isMode);
+				return;
+			case ModeSync::Keep:
+				return;
+			case ModeSync::Create:
+				break;
+		}
 	}
 	VControllerUIButtonGroup::Config conf;
 	conf.keys = {KeyInfo::appKey(AppKeyCode::toggleDuoLayout)};
@@ -422,6 +473,8 @@ void VController::syncDuoModeButton()
 	auto &elem = uiElements.emplace_back(std::in_place_type<VControllerUIButtonGroup>, conf);
 	elem.sizeMM100x = 900;
 	elem.duoFlags = VControllerElement::DUO_POS_MM;
+	// Select/Start sit at about 9.5 mm from the top. 30 mm puts this button
+	// about 20 mm below them so the 9 mm discs do not overlap.
 	setDuoPosition(elem, 0, CT2DO, 0.f, 30.f);
 	setDuoPosition(elem, 1, CT2DO, 0.f, 30.f);
 	if(hasWindow())

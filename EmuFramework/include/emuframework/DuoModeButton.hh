@@ -25,11 +25,18 @@ enum class DuoModeButtonSync : uint8_t
 	Erase,
 };
 
+// userRemoved defaults to false. Configs written before that field
+// existed therefore still show the button while two-player controls are on.
 constexpr bool duoModeButtonShouldExist(bool twoPlayerControls, bool userRemoved) noexcept
 {
 	return twoPlayerControls && !userRemoved;
 }
 
+// Keep means the loaded button is left untouched: its millimetre position
+// and its state (including HIDDEN) survive relaunch.
+// resetToDefault forces a fresh SHOWN button at the default position
+// (Reset UI Groups, or two-player toggled back on after the caller
+// clears userRemoved).
 constexpr DuoModeButtonSync decideDuoModeButton(bool twoPlayerControls, bool userRemoved, bool presentInLoadedConfig, bool resetToDefault = false) noexcept
 {
 	if(resetToDefault)

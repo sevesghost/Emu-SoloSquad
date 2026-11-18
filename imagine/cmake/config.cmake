@@ -58,8 +58,9 @@ function(generateConfigHeader target)
 	set(genDir "${CMAKE_BINARY_DIR}/gen")
 	set(configFilePath "${genDir}/${configFilename}")
 	message("Config Header: ${configFilePath}")
-	# Multiple COMMANDs in one execute_process run together as a pipeline, so
-	# mkdir raced the writer and android-x86 configure lost (gen/ missing).
+	# execute_process pipes multiple COMMANDs together, so mkdir must not share
+	# that pipeline or writeConfig.sh races a missing directory on a clean tree
+	# (android-x86 configure lost gen/ when mkdir raced the writer).
 	file(MAKE_DIRECTORY "${genDir}")
 	execute_process(
 		COMMAND bash ${IMAGINE_PATH}/make/writeConfig.sh "${configFilePath}" "${configEnable}" "${configDisable}" "${configInc}" "${configDefs}"
@@ -410,7 +411,15 @@ set(LDFLAGS_SHARED)
 set(TARGET_EXT_Debug -debug)
 set(TARGET_EXT_RelWithDebInfo -rdebug)
 set(GEN_TARGET_EXT)
-set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
+# `import std` is still experimental and each CMake release has its own id.
+# This runs from the toolchain file, before project() enables CXX.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.4)
+	set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "f35a9ac6-8463-4d38-8eec-5d6008153e7d") # 4.4
+elseif(CMAKE_VERSION VERSION_GREATER_EQUAL 4.1)
+	set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444") # 4.1
+else()
+	set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
+endif()
 
 foreach(config IN LISTS CMAKE_CONFIGURATION_TYPES)
 	string(APPEND GEN_TARGET_EXT "$<$<CONFIG:${config}>:${TARGET_EXT_${config}}>")
