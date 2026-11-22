@@ -276,7 +276,7 @@ void AppMeta::refreshDuoButtonSizes(VController &v)
 
 void AppMeta::setPort1Multitap(bool enabled)
 {
-	static_cast<SaturnSystem&>(gSystem()).enablePort1Multitap(enabled);
+	static_cast<SaturnSystem&>(gSystem()).setTouchMultitap(enabled, gApp());
 }
 
 void AppMeta::onCustomizeNavView(AppNavView& view)

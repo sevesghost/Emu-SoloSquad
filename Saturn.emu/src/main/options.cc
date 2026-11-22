@@ -31,18 +31,14 @@ namespace EmuEx
 
 void SaturnSystem::onSessionOptionsLoaded(EmuApp &app)
 {
+	// Four on-screen players lay a Port 1 multitap over the loaded settings.
+	touchMultitap = app.defaultVController().playerControls() >= 4;
 	applyInputConfig(app);
-	// applyInputConfig programs SMPC from the config it was given, which a
-	// session reset has just cleared. Re-apply 4-player multitap after that.
-	// Leave a manually enabled Port 1 multitap alone when fewer than 4 players.
-	if(app.defaultVController().playerControls() >= 4)
-		enablePort1Multitap(true);
 }
 
 bool SaturnSystem::resetSessionOptions(EmuApp &app)
 {
 	inputConfig = {};
-	port1MultitapAuto = false;
 	cartType = MDFN_IEN_SS::CART__RESERVED;
 	region = {};
 	sysContentRotation = Rotation::ANY;
