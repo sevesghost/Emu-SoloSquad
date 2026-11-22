@@ -116,7 +116,9 @@ bool PlaceVControlsView::inputEvent(const Input::Event& e, ViewInputEventParams)
 					};
 					for(auto &elem : vController.deviceElements())
 					{
-						if(tryGrabElement(elem))
+						// Pads of other player counts or the other layout are not
+						// drawn here, so they cannot be grabbed either.
+						if(vController.elementIsActive(elem) && tryGrabElement(elem))
 							return;
 					}
 					for(auto &elem : vController.guiElements())

@@ -219,9 +219,37 @@ AssetDesc AppMeta::vControllerAssetDesc(KeyInfo key)
 		l{AssetFileID::gamepadOverlay,     gpImageCoords({{4, 4}, {2, 2}})},
 		r{AssetFileID::gamepadOverlay,     gpImageCoords({{6, 4}, {2, 2}})},
 		start{AssetFileID::gamepadOverlay, gpImageCoords({{0, 6}, {2, 1}}), {1, 2}},
-		blank{AssetFileID::gamepadOverlay, gpImageCoords({{2, 6}, {2, 2}})};
+		blank{AssetFileID::gamepadOverlay, gpImageCoords({{2, 6}, {2, 2}})},
+		p1{AssetFileID::gamepadOverlay, gpImageCoords({{4, 6}, {2, 1}}), {1, 2}},
+		p2{AssetFileID::gamepadOverlay, gpImageCoords({{6, 6}, {2, 1}}), {1, 2}},
+		p3{AssetFileID::gamepadOverlay, gpImageCoords({{4, 7}, {2, 1}}), {1, 2}},
+		p4{AssetFileID::gamepadOverlay, gpImageCoords({{6, 7}, {2, 1}}), {1, 2}};
 	} virtualControllerAssets;
 
+	if(key.flags.appCode)
+	{
+		// Saturn Quad's P1-P4 link chips; the player is the key's deviceId.
+		if(key[0] != KeyCode(AppKeyCode::togglePlayerLink))
+			return virtualControllerAssets.blank;
+		switch(key.flags.deviceId & 3)
+		{
+			case 1: return virtualControllerAssets.p2;
+			case 2: return virtualControllerAssets.p3;
+			case 3: return virtualControllerAssets.p4;
+			default: return virtualControllerAssets.p1;
+		}
+	}
+	// The framework asks with the D-pad's first key (Up), or with 0.
+	switch(SaturnKey(key[0]))
+	{
+		case SaturnKey::Up:
+		case SaturnKey::Right:
+		case SaturnKey::Down:
+		case SaturnKey::Left:
+			return virtualControllerAssets.dpad;
+		default:
+			break;
+	}
 	if(key[0] == 0)
 		return virtualControllerAssets.dpad;
 	switch(SaturnKey(key[0]))

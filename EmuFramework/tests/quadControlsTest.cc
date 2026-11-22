@@ -218,6 +218,69 @@ int main()
 	expect(ext.size() == kQuadExtensionBytes && back.playerCount == 4 && back.size4 == 1300 && back.alpha3 == 64,
 		"quad extension round-trips with no extra bytes");
 
+	// ---- Joint pad roles ----
+	expect(!isJointRole(0) && !isJointRole(3) && !isJointRole(69) && !isJointRole(255),
+		"v1.2 separate pads (0..3), NEO-Duo roles (0..69) and classic buttons are not joint");
+	expect(isJointRole(kJointRoleDpad) && isJointRole(kJointRoleLink + 3), "joint pad roles are recognised");
+	expect(jointRolePlayer(kJointRolePlayerStart) == 0 && jointRolePlayer(kJointRoleLink + 2) == 2
+		&& jointRolePlayer(kJointRoleFace) == -1, "per-player joint elements know their player");
+	expect(quadPartOf(2) == QuadPart::Separate && quadPartOf(kJointRoleR) == QuadPart::Joint
+		&& quadPartOf(kJointRoleLink + 1) == QuadPart::JointPlayer && quadPartOf(kJointRoleAdded) == QuadPart::Always,
+		"each role belongs to one part");
+
+	// ---- Which pads are live ----
+	for(bool joint : {false, true})
+	{
+		// One player: the joint pad is the normal pad, whatever the layout.
+		expect(quadPartVisible(QuadPart::Joint, -1, 1, joint), "1P shows the joint pad");
+		expect(!quadPartVisible(QuadPart::Separate, 0, 1, joint), "1P hides P1's own pad");
+		expect(!quadPartVisible(QuadPart::JointPlayer, 0, 1, joint), "1P hides the P1-P4 strip");
+		expect(quadPartVisible(QuadPart::Always, -1, 1, joint) && quadPartVisible(QuadPart::Always, -1, 4, joint),
+			"added groups are always live");
+	}
+	expect(quadPartVisible(QuadPart::Joint, -1, 4, true) && !quadPartVisible(QuadPart::Joint, -1, 4, false),
+		"the joint pad is live only in the Joint layout with 4 players");
+	for(int p = 0; p < 4; ++p)
+	{
+		expect(quadPartVisible(QuadPart::Separate, p, 4, false) && !quadPartVisible(QuadPart::Separate, p, 4, true),
+			"each player's own pad is live only in the Separate layout");
+		expect(quadPartVisible(QuadPart::JointPlayer, p, 4, true), "every chip and Start shows with 4 players");
+		expect(quadPartVisible(QuadPart::JointPlayer, p, 2, true) == (p < 2), "2 players show only the P1/P2 chips");
+		expect(quadPartVisible(QuadPart::Separate, p, 2, false) == (p < 2), "2 players show only the P1/P2 pads");
+	}
+
+	// ---- Player links ----
+	expect(effectiveLinkMask(kAllPlayersLinked, 4) == 0b1111 && effectiveLinkMask(kAllPlayersLinked, 2) == 0b0011,
+		"every active player starts linked");
+	expect(effectiveLinkMask(0b1100, 2) == 0b0011, "nobody active linked falls back to every active player");
+	expect(linkAfterTap(kAllPlayersLinked, 2, 4) == 0b1011, "tapping P3 unlinks P3");
+	expect(linkAfterTap(0b1011, 2, 4) == 0b1111, "tapping P3 again links it back");
+	expect(linkAfterTap(0b0100, 2, 4) == 0b0100, "the last linked player stays linked");
+	expect(linkAfterTap(kAllPlayersLinked, 3, 2) == kAllPlayersLinked, "a hidden player's chip does nothing");
+	// With 2 players and only P3/P4 stored, P1 and P2 both show as linked;
+	// tapping P1 must unlink P1, not leave P1 alone.
+	expect(effectiveLinkMask(linkAfterTap(0b1100, 0, 2), 2) == 0b0010, "a tap toggles what the chips show");
+	expect(linkAfterHold(kAllPlayersLinked, 1, 4) == 0b0010, "holding P2 drives only P2");
+	expect(linkAfterHold(0b0010, 1, 4) == kAllPlayersLinked, "holding the only linked chip links everyone");
+	expect(linkAfterHold(0b0010, 3, 4) == 0b1000, "holding another chip moves the solo to it");
+	expect(jointTargetPorts(kAllPlayersLinked, 4, 0) == 0b1111, "the joint pad drives all four players");
+	expect(jointTargetPorts(0b0101, 4, 0) == 0b0101, "the joint pad drives only linked players");
+	expect(jointTargetPorts(0b0101, 2, 0) == 0b0001, "unlinked P2 is skipped with 2 players");
+	expect(jointTargetPorts(0b0000, 1, 0) == 0b0001, "one player drives P1");
+	expect(jointTargetPorts(kAllPlayersLinked, 1, 5) == (1u << 5), "one player follows Virtual Gamepad Player");
+	for(uint8_t mask = 0; mask < 16; ++mask)
+	{
+		for(int count : {1, 2, 4})
+		{
+			expect(effectiveLinkMask(mask, count) != 0, "the joint pad always drives someone");
+			for(int p = 0; p < 4; ++p)
+			{
+				expect(effectiveLinkMask(linkAfterTap(mask, p, count), count) != 0, "a tap never leaves nobody linked");
+				expect(effectiveLinkMask(linkAfterHold(mask, p, count), count) != 0, "a hold never leaves nobody linked");
+			}
+		}
+	}
+
 	if(fails)
 	{
 		std::cerr << fails << " failure(s)\n";

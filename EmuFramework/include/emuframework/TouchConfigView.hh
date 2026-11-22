@@ -84,6 +84,12 @@ protected:
 	TextHeadingMenuItem devButtonsHeading;
 	TextHeadingMenuItem uiButtonsHeading;
 	TextHeadingMenuItem otherHeading;
+	// Saturn Quad: one size and opacity for all four player pads, and a hint
+	// for the P1-P4 link chips.
+	TextMenuItem quadSizeItem[6];
+	MultiChoiceMenuItem quadSize;
+	MultiChoiceMenuItem quadAlpha;
+	TextHeadingMenuItem linkHint;
 	std::vector<TextMenuItem> elementItems;
 	std::vector<MenuItem*> item;
 

@@ -103,6 +103,7 @@ static void updateTexture(const EmuApp &app, VControllerElement &e, Gfx::Rendere
 						case hardReset:
 						case resetMenu: return app.asset(AssetID::arrow);
 						case toggleDuoLayout: return app.asset(AssetID::menu);
+						case togglePlayerLink: return app.asset(AssetID::more);
 					}
 					return app.asset(AssetID::more);
 				}());
@@ -171,7 +172,7 @@ void VController::resetInput()
 	{
 		for(auto &vBtn : e.data)
 		{
-			if(vBtn) // release old key, if any
+			if(vBtn && !vBtn.flags.appCode) // release old key, if any
 				app().handleSystemKeyInput(vBtn, Input::Action::RELEASED);
 		}
 	}
@@ -213,7 +214,7 @@ void VController::place()
 	if(!hasWindow())
 		return;
 	auto &win = window();
-	if(twoPlayer_ && !duoCustomized_)
+	if(usesDuoSets() && !duoCustomized_)
 		AppMeta::layoutDuoGamepad(*this);
 	applyButtonSize();
 	auto bounds = layoutBounds();
@@ -224,7 +225,7 @@ void VController::place()
 	{
 		if(elem.isEmptiedSetMarker())
 			continue;
-		placeElement(elem, twoPlayer_ ? gpLayout : isPortrait);
+		placeElement(elem, usesDuoSets() ? gpLayout : isPortrait);
 	}
 	for(auto &elem : uiElements)
 	{
@@ -246,28 +247,33 @@ void VController::toggleKeyboard()
 
 std::array<KeyInfo, 2> VController::findGamepadElements(WPt pos)
 {
-	for(const auto &gpElem : gpElements)
+	// Buttons are tried before D-pads: a D-pad reads touches in a square half
+	// again its drawn size, and must not swallow a button drawn next to it.
+	for(bool dpadPass : {false, true})
 	{
-		if(gpElem.isEmptiedSetMarker() || !onScreenSetActive(gpElem.playerIndex(), activePlayerCount()))
-			continue;
-		auto indices = gpElem.visit(overloaded
+		for(const auto &gpElem : gpElements)
 		{
-			[&](const VControllerDPad &dpad) -> std::array<KeyInfo, 2>
+			if(bool(gpElem.dPad()) != dpadPass || !elementIsActive(gpElem))
+				continue;
+			auto indices = gpElem.visit(overloaded
 			{
-				if(!gamepadDPadIsEnabled() || gpElem.state == VControllerState::OFF)
-					return {};
-				return dpad.getInput(pos);
-			},
-			[&](const VControllerButtonGroup &grp) -> std::array<KeyInfo, 2>
-			{
-				if(!gamepadButtonsAreEnabled() || gpElem.state == VControllerState::OFF)
-					return {};
-				return grp.findButtonIndices(pos);
-			},
-			[](auto&) -> std::array<KeyInfo, 2> { return {}; }
-		});
-		if(indices != std::array<KeyInfo, 2>{})
-			return indices;
+				[&](const VControllerDPad &dpad) -> std::array<KeyInfo, 2>
+				{
+					if(!gamepadDPadIsEnabled() || gpElem.state == VControllerState::OFF)
+						return {};
+					return dpad.getInput(pos);
+				},
+				[&](const VControllerButtonGroup &grp) -> std::array<KeyInfo, 2>
+				{
+					if(!gamepadButtonsAreEnabled() || gpElem.state == VControllerState::OFF)
+						return {};
+					return grp.findButtonIndices(pos);
+				},
+				[](auto&) -> std::array<KeyInfo, 2> { return {}; }
+			});
+			if(indices != std::array<KeyInfo, 2>{})
+				return indices;
+		}
 	}
 	return {};
 }
@@ -325,7 +331,16 @@ bool VController::pointerInputEvent(const Input::MotionEvent &e, WindowRect game
 							return true;
 						}
 						if(e.released() && e.time() - duoModeDown >= Milliseconds{500})
+						{
 							setDuoLayout(duoLayout_ == DuoLayout::Joint ? DuoLayout::Separate : DuoLayout::Joint);
+							bool joint = duoLayout_ == DuoLayout::Joint;
+							if(AppMeta::maxPlayers > 2 && playerControls_ <= 1)
+								app().postMessage(2, false, joint ? "Joint layout (used with 2 or 4 players)" : "Separate layout (used with 2 or 4 players)");
+							else if(AppMeta::maxPlayers > 2)
+								app().postMessage(2, false, joint ? "Joint: one pad drives every linked player" : "Separate: one pad per player");
+							else
+								app().postMessage(2, false, joint ? "Joint layout" : "Separate layout");
+						}
 						return true;
 					}
 					app().handleKeyInput(btn.key, e);
@@ -350,14 +365,25 @@ bool VController::pointerInputEvent(const Input::MotionEvent &e, WindowRect game
 	bool elementsArePushed = newElems != nullElems;
 	auto &app = this->app();
 	auto &system = this->system();
+	// Link chips act when the finger lifts: a tap links or unlinks that
+	// player, a hold of half a second or more drives only that player (or
+	// everyone again). Sliding off a chip cancels it.
+	static std::array<SteadyClockTimePoint, maxDuoPlayers> linkChipDown{};
 	auto applyInputActions =
-		[&](std::array<KeyInfo, 2> prevElements, std::array<KeyInfo, 2> currElements)
+		[&](std::array<KeyInfo, 2> prevElements, std::array<KeyInfo, 2> currElements, bool pointerUp)
 		{
 			// release old buttons
 			for(auto vBtn : prevElements)
 			{
 				if(vBtn && !std::ranges::contains(currElements, vBtn))
 				{
+					if(vBtn.flags.appCode)
+					{
+						int player = vBtn.flags.deviceId & 3;
+						if(isPlayerLinkKey(vBtn) && pointerUp)
+							onLinkChipReleased(player, e.time() - linkChipDown[player] >= Milliseconds{500});
+						continue;
+					}
 					//log.info("releasing {}", vBtn[0]);
 					app.handleSystemKeyInput(vBtn, Input::Action::RELEASED);
 				}
@@ -367,8 +393,16 @@ bool VController::pointerInputEvent(const Input::MotionEvent &e, WindowRect game
 			{
 				if(vBtn && !std::ranges::contains(prevElements, vBtn))
 				{
-					//log.info("pushing {}", vBtn[0]);
-					app.handleSystemKeyInput(vBtn, Input::Action::PUSHED);
+					if(vBtn.flags.appCode)
+					{
+						if(isPlayerLinkKey(vBtn))
+							linkChipDown[vBtn.flags.deviceId & 3] = e.time();
+					}
+					else
+					{
+						//log.info("pushing {}", vBtn[0]);
+						app.handleSystemKeyInput(vBtn, Input::Action::PUSHED);
+					}
 					if(vibrateOnTouchInput())
 					{
 						app.vibrationManager.vibrate(Milliseconds{32});
@@ -380,7 +414,7 @@ bool VController::pointerInputEvent(const Input::MotionEvent &e, WindowRect game
 		[&](Input::DragTrackerState dragState, auto &currElems)
 		{
 			currElems = newElems;
-			applyInputActions(nullElems, newElems);
+			applyInputActions(nullElems, newElems, false);
 			if(!elementsArePushed)
 			{
 				elementsArePushed |= system.onPointerInputStart(e, dragState, gameRect);
@@ -389,7 +423,7 @@ bool VController::pointerInputEvent(const Input::MotionEvent &e, WindowRect game
 		[&](Input::DragTrackerState dragState, Input::DragTrackerState prevDragState, auto &currElems)
 		{
 			auto prevElems = std::exchange(currElems, newElems);
-			applyInputActions(prevElems, newElems);
+			applyInputActions(prevElems, newElems, false);
 			if(!elementsArePushed)
 			{
 				elementsArePushed |= system.onPointerInputUpdate(e, dragState, prevDragState, gameRect);
@@ -397,7 +431,7 @@ bool VController::pointerInputEvent(const Input::MotionEvent &e, WindowRect game
 		},
 		[&](Input::DragTrackerState dragState, auto &currElems)
 		{
-			applyInputActions(currElems, nullElems);
+			applyInputActions(currElems, nullElems, true);
 			elementsArePushed |= system.onPointerInputEnd(e, dragState, gameRect);
 		});
 	 if(!elementsArePushed && !gamepadControlsVisible() && shouldShowOnTouchInput()
@@ -431,7 +465,7 @@ void VController::draw(Gfx::RendererCommands &__restrict__ cmds, bool showHidden
 	{
 		auto elementIsEnabled = [&](const VControllerElement &e)
 		{
-			if(e.isEmptiedSetMarker() || !onScreenSetActive(e.playerIndex(), activePlayerCount()))
+			if(!elementIsActive(e))
 				return false;
 			return !((e.buttonGroup() && gamepadDisabledFlags.buttons) ||
 				(e.dPad() && gamepadDisabledFlags.dpad));
@@ -560,12 +594,20 @@ void VController::applySavedButtonAlpha()
 	applyButtonAlpha(alphaF);
 }
 
-static void applyDuoTint(VControllerElement &e, bool duo)
+static void applyDuoTint(VControllerElement &e, bool duo, uint8_t linked)
 {
 	if(auto *grp = e.buttonGroup())
 	{
 		for(auto &btn : grp->buttons)
+		{
 			btn.color = duo ? duoButtonColor(btn.key) : Gfx::Color{};
+			if(duo && isPlayerLinkKey(btn.key) && !(linked & (1u << (btn.key.flags.deviceId & 3))))
+			{
+				// An unlinked player's chip keeps its colour, but dark.
+				auto c = btn.color;
+				btn.color = Gfx::Color{c.r * .3f, c.g * .3f, c.b * .3f, c.a};
+			}
+		}
 	}
 	if(auto *dpad = e.dPad())
 	{
@@ -576,9 +618,11 @@ static void applyDuoTint(VControllerElement &e, bool duo)
 
 void VController::applyButtonAlpha(float alpha)
 {
+	bool duo = usesDuoSets();
+	auto linked = effectiveLinkMask(linkMask_, activePlayerCount());
 	for(auto &e : gpElements)
 	{
-		applyDuoTint(e, twoPlayer_);
+		applyDuoTint(e, duo, linked);
 		float a = e.hasOwnAlpha() ? e.ownAlpha / 255.f : alpha;
 		e.setAlpha(a);
 	}
@@ -1144,7 +1188,7 @@ void VController::configure(Window &win, Gfx::Renderer &renderer, const Gfx::Gly
 			update(e);
 			if(e.dPad()) e.dPad()->updateBoundingAreaGfx(renderer);
 		};
-		if(playerControls_ > 1)
+		if(usesDuoSets())
 			supplementMissingPlayers();
 	}
 	if(playerControls_ >= 4)
@@ -1197,7 +1241,7 @@ void VController::resetEmulatedDevicePositions(std::vector<VControllerElement> &
 
 void VController::resetEmulatedDevicePositions()
 {
-	if(twoPlayer_)
+	if(usesDuoSets())
 	{
 		duoCustomized_ = false;
 		if(hasWindow())
@@ -1215,7 +1259,7 @@ void VController::resetEmulatedDeviceGroups(bool keepEmptied)
 	log.info("setting default emu device button groups");
 	uint8_t keep = keepEmptied ? emptiedPlayerMask() : 0;
 	duoCustomized_ = false;
-	if(twoPlayer_)
+	if(usesDuoSets())
 	{
 		gpElements.clear();
 		if(AppMeta::buildDuoGamepad(*this))
@@ -1376,11 +1420,21 @@ VControllerElement &VController::add(std::vector<VControllerElement> &elems, Inp
 
 VControllerElement &VController::add(InputComponentDesc c)
 {
-	return add(c.type == InputComponent::ui ? uiElements : gpElements, c);
+	if(c.type == InputComponent::ui || AppMeta::maxPlayers <= 2)
+		return add(c.type == InputComponent::ui ? uiElements : gpElements, c);
+	// Saturn Quad: an added group shows in every layout and presses for every
+	// linked player, like the joint pad. Its position stays in pixels.
+	auto &elem = add(gpElements, c);
+	elem.duoRole = kJointRoleAdded;
+	elem.duoFlags = uint8_t(VControllerElement::DUO_FIXED_PLAYER | (2 << VControllerElement::DUO_PLAYER_SHIFT));
+	bindElementToItsPlayer(elem);
+	applySavedButtonAlpha();
+	return elem;
 }
 
 void VController::update(VControllerElement &elem) const
 {
+	bindElementToItsPlayer(elem);
 	if(!hasWindow())
 		return;
 	updateTexture(app(), elem, renderer_->mainTask, fanQuadIdxs);
@@ -1397,7 +1451,11 @@ void VController::update(VControllerElement &elem) const
 bool VController::remove(VControllerElement &elemToErase)
 {
 	int player = elemToErase.playerIndex();
-	bool emptiedCandidate = player >= 0 && !elemToErase.isEmptiedSetMarker() && !elemToErase.isSharedSet();
+	auto removedPart = quadPartOf(elemToErase.duoRole);
+	bool emptiedCandidate = player >= 0 && !elemToErase.isEmptiedSetMarker() && !elemToErase.isSharedSet()
+		&& removedPart == QuadPart::Separate;
+	bool jointCandidate = AppMeta::maxPlayers > 2 && !elemToErase.isEmptiedSetMarker()
+		&& (removedPart == QuadPart::Joint || removedPart == QuadPart::JointPlayer);
 	if(uiElementIsDuoModeButton(elemToErase))
 	{
 		modeButtonRemoved_ = true;
@@ -1412,6 +1470,9 @@ bool VController::remove(VControllerElement &elemToErase)
 		std::erase_if(uiElements, [&](auto &e) { return &e == &elemToErase; });
 	if(removed && emptiedCandidate && !hasRealPlayerElements(player))
 		ensureEmptyPlayerMarker(player);
+	// Deleting the whole joint pad sticks across relaunch too.
+	if(removed && jointCandidate && !hasJointElements())
+		ensureJointEmptiedMarker();
 	return removed;
 }
 
