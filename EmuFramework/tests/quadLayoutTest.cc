@@ -105,7 +105,7 @@ int main()
 		{175, 82}, {180, 110}, {200, 150}, {220, 140}, {250, 175},
 	};
 	const float faces[]{9, 10, 12, 14, 16, 20};
-	for(auto [lw, lh] : sizes)
+	for(const auto &[lw, lh] : sizes)
 	{
 		for(float face : faces)
 		{
