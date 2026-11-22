@@ -3,6 +3,21 @@ name: NEO-Duo
 on: [push, pull_request, workflow_dispatch]
 
 jobs:
+  host_tests:
+    name: Host tests (on-screen controls)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout emu-ex-plus-alpha repo
+      uses: actions/checkout@v4
+    - name: Run host tests
+      run: |
+        for t in quadControlsTest quadLayoutTest duoModeButtonTest
+        do
+          g++ -std=c++20 -Wall -Wextra -Werror -I EmuFramework/include "EmuFramework/tests/$t.cc" -o "/tmp/$t"
+          "/tmp/$t"
+        done
+        bash tests/quad_mode/run.sh
+
   build:
     name: Build base
     runs-on: ubuntu-latest

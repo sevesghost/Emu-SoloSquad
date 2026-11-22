@@ -51,6 +51,9 @@ enum class AppKeyCode : KeyCode
 	resetMenu,
 	closeContent,
 	toggleDuoLayout,
+	// Saturn Quad link chip. The player is the key's deviceId. Only the
+	// on-screen chips use it, so it is not in AppKeys (no physical mapping).
+	togglePlayerLink,
 };
 
 inline constexpr struct AppKeys
@@ -112,6 +115,11 @@ inline constexpr std::array genericKeyboardAppKeyCodeMap
 	KeyMapping{appKeys.rewind, {Input::Keycode::LCTRL, Input::Keycode::R}},
 	KeyMapping{appKeys.openMenu, Input::Keycode::BACK_KEY},
 };
+
+constexpr bool isPlayerLinkKey(KeyInfo key)
+{
+	return key.flags.appCode && AppKeyCode(key.codes[0]) == AppKeyCode::togglePlayerLink;
+}
 
 inline constexpr std::array rightUIKeys{appKeys.openMenu};
 inline constexpr std::array leftUIKeys{appKeys.toggleFastForward, appKeys.rewind};

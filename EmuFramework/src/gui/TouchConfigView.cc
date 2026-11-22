@@ -834,6 +834,7 @@ TouchConfigView::TouchConfigView(ViewAttachParams attach, VController &vCtrl):
 			.defaultItemOnSelect = [this](TextMenuItem &item)
 			{
 				vController.setPlayerControls(item.id);
+				vController.applyButtonAlpha(.75); // keep the setup screen's preview bright
 				reloadItems();
 			}
 		},
@@ -852,6 +853,7 @@ TouchConfigView::TouchConfigView(ViewAttachParams attach, VController &vCtrl):
 			.defaultItemOnSelect = [this](TextMenuItem &item)
 			{
 				vController.setDuoLayout(item.id == 0 ? DuoLayout::Separate : DuoLayout::Joint);
+				vController.applyButtonAlpha(.75);
 				reloadItems();
 			}
 		},
@@ -958,7 +960,7 @@ TouchConfigView::TouchConfigView(ViewAttachParams attach, VController &vCtrl):
 	},
 	sharedSize
 	{
-		"Shared Button Size", attach,
+		AppMeta::maxPlayers > 2 ? "Joint Pad Button Size" : "Shared Button Size", attach,
 		MenuId{vCtrl.sharedFaceSizeMM100x()},
 		sharedSizeItem,
 		{
@@ -980,7 +982,7 @@ TouchConfigView::TouchConfigView(ViewAttachParams attach, VController &vCtrl):
 	},
 	sharedAlpha
 	{
-		"Shared Opacity", attach,
+		AppMeta::maxPlayers > 2 ? "Joint Pad Opacity" : "Shared Opacity", attach,
 		MenuId{vCtrl.sharedOpacity()},
 		sharedAlphaItem,
 		{
@@ -1191,6 +1193,50 @@ TouchConfigView::TouchConfigView(ViewAttachParams attach, VController &vCtrl):
 	otherHeading
 	{
 		"Other Options", attach
+	},
+	quadSizeItem
+	{
+		{"9mm", attach, {.id = 900}},
+		{"10mm", attach, {.id = 1000}},
+		{"12mm", attach, {.id = 1200}},
+		{"14mm", attach, {.id = 1400}},
+		{"16mm", attach, {.id = 1600}},
+		{"20mm", attach, {.id = 2000}},
+	},
+	quadSize
+	{
+		"Player Pad Button Size", attach,
+		MenuId{vCtrl.playerFaceSizeMM100x(0)},
+		quadSizeItem,
+		{
+			.onSetDisplayString = [this](auto, Gfx::Text &t)
+			{
+				t.resetString(std::format("{:g}mm", vController.playerFaceSizeMM100x(0) / 100.));
+				return true;
+			},
+			.defaultItemOnSelect = [this](TextMenuItem &item)
+			{
+				for(int p = 0; p < VController::maxDuoPlayers; ++p)
+					vController.setPlayerFaceSizeMM100x(p, item.id);
+			}
+		},
+	},
+	quadAlpha
+	{
+		"Player Color Opacity", attach,
+		MenuId{vCtrl.playerOpacity(0) ? vCtrl.playerOpacity(0) : int(vCtrl.buttonAlpha())},
+		duoAlphaItem,
+		{
+			.defaultItemOnSelect = [this](TextMenuItem &item)
+			{
+				for(int p = 0; p < VController::maxDuoPlayers; ++p)
+					vController.setPlayerOpacity(p, item.id);
+			}
+		},
+	},
+	linkHint
+	{
+		"P1-P4 chips: tap = on/off, hold = only that one", attach
 	}
 {
 	reloadItems();
@@ -1201,17 +1247,35 @@ void TouchConfigView::reloadItems()
 	elementItems.clear();
 	item.clear();
 	item.emplace_back(&touchCtrl);
-	if(AppMeta::maxPlayers > 1)
+	if(AppMeta::maxPlayers > 2)
+	{
+		// Saturn Quad: 1 player uses the joint pad as a normal pad; 2 or 4
+		// players use the joint pad or one pad each.
+		const bool multi = vController.playerControls() > 1;
+		const bool joint = vController.duoLayout() == DuoLayout::Joint;
+		player.setActive(!multi);
+		item.emplace_back(&player);
+		playerCount.setSelected(MenuId{vController.playerControls()}, *this);
+		item.emplace_back(&playerCount);
+		duoLayout.setActive(multi);
+		item.emplace_back(&duoLayout);
+		item.emplace_back(&modeHint);
+		linkHint.setActive(multi && joint);
+		item.emplace_back(&linkHint);
+		sharedSize.setActive(!multi || joint);
+		item.emplace_back(&sharedSize);
+		sharedAlpha.setActive(!multi || joint);
+		item.emplace_back(&sharedAlpha);
+		quadSize.setActive(multi && !joint);
+		item.emplace_back(&quadSize);
+		quadAlpha.setActive(multi);
+		item.emplace_back(&quadAlpha);
+	}
+	else if(AppMeta::maxPlayers > 1)
 	{
 		player.setActive(vController.playerControls() <= 1);
 		item.emplace_back(&player);
-		if(AppMeta::maxPlayers > 2)
-		{
-			playerCount.setSelected(MenuId{vController.playerControls()}, *this);
-			item.emplace_back(&playerCount);
-		}
-		else
-			item.emplace_back(&twoPlayers);
+		item.emplace_back(&twoPlayers);
 		duoLayout.setActive(vController.playerControls() > 1);
 		sharedFaceRow.setActive(vController.twoPlayerControls() && vController.duoLayout() == DuoLayout::Separate);
 		p1Size.setActive(vController.twoPlayerControls());
@@ -1241,6 +1305,10 @@ void TouchConfigView::reloadItems()
 	elementItems.reserve(vController.deviceElements().size() + vController.guiElements().size());
 	for(auto &elem : vController.deviceElements())
 	{
+		// Only the pads on screen now: other player counts and the other
+		// layout keep their own buttons.
+		if(!vController.elementIsActive(elem))
+			continue;
 		auto &i = elementItems.emplace_back(
 			elem.name(app().inputManager), attachParams(),
 			[this, &elem](const Input::Event &e)

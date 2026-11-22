@@ -46,7 +46,7 @@ void SaturnSystem::handleInputAction(EmuApp *, InputAction a)
 {
 	auto player = a.flags.deviceId;
 	assume(player < AppMeta::maxPlayers);
-	if(inputConfig.devs[player] == InputDeviceType::gun)
+	if(activeInputConfig.devs[player] == InputDeviceType::gun)
 	{
 		if(SaturnKey(a.code) == SaturnKey::Start)
 		{
@@ -98,39 +98,33 @@ static const char *toString(InputDeviceType dev)
 	std::unreachable();
 }
 
-void SaturnSystem::enablePort1Multitap(bool enabled)
+InputConfig SaturnSystem::effectiveInputConfig(InputConfig config) const
 {
-	if(enabled)
+	if(!touchMultitap)
+		return config;
+	// Multitap slots 1-4 on port 1 are players 1-4. A light gun or an empty
+	// slot there would leave an on-screen player without a pad.
+	config.multitaps[0] = true;
+	for(int slot = 0; slot < 4; ++slot)
 	{
-		if(!inputConfig.multitaps[0])
-			port1MultitapAuto = true;
+		if(config.devs[slot] != InputDeviceType::gamepad && config.devs[slot] != InputDeviceType::multipad)
+			config.devs[slot] = InputDeviceType::gamepad;
 	}
-	else
-	{
-		if(!port1MultitapAuto)
-			return; // user turned it on, leave it alone
-		port1MultitapAuto = false;
-	}
-	inputConfig.multitaps[0] = enabled;
-	if(enabled)
-	{
-		for(int slot = 0; slot < 4; ++slot)
-			inputConfig.devs[slot] = InputDeviceType::gamepad;
-	}
-	if(!CDInterfaces.size())
-		return; // SMPC_Init has not run yet; same guard as applyInputConfig.
-	using namespace MDFN_IEN_SS;
-	SMPC_SetMultitap(0, enabled);
-	SMPC_SetMultitap(1, inputConfig.multitaps[1]);
-	for(auto [idx, dev] : enumerate(inputConfig.devs))
-	{
-		mdfnGameInfo.SetInput(idx, toString(dev), reinterpret_cast<uint8*>(&inputBuff[idx]));
-	}
-	currStateSize = stateSizeMDFN();
+	return config;
+}
+
+void SaturnSystem::setTouchMultitap(bool on, EmuApp &app)
+{
+	if(touchMultitap == on)
+		return;
+	touchMultitap = on;
+	applyInputConfig(app);
 }
 
 void SaturnSystem::applyInputConfig(InputConfig config, EmuApp &app)
 {
+	config = effectiveInputConfig(config);
+	activeInputConfig = config;
 	if(!CDInterfaces.size())
 		return; // no content
 	using namespace MDFN_IEN_SS;
@@ -140,7 +134,7 @@ void SaturnSystem::applyInputConfig(InputConfig config, EmuApp &app)
 	{
 		mdfnGameInfo.SetInput(idx, toString(dev), reinterpret_cast<uint8*>(&inputBuff[idx]));
 	}
-	if(inputConfig.devs[0] == InputDeviceType::gun)
+	if(config.devs[0] == InputDeviceType::gun)
 	{
 		constexpr std::array gunDisabledKeys{
 			KeyCode(SaturnKey::A), KeyCode(SaturnKey::B),	KeyCode(SaturnKey::C),
@@ -165,7 +159,7 @@ void SaturnSystem::setInputConfig(InputConfig config, EmuApp &app)
 
 bool SaturnSystem::onPointerInputStart(const Input::MotionEvent &e, Input::DragTrackerState, WRect gameRect)
 {
-	if(inputConfig.devs[0] != InputDeviceType::gun)
+	if(activeInputConfig.devs[0] != InputDeviceType::gun)
 		return false;
 	auto &gunData = asGunData(inputBuff[0]);
 	if(gameRect.overlaps(e.pos()) && espec.DisplayRect.h)
@@ -188,7 +182,7 @@ bool SaturnSystem::onPointerInputStart(const Input::MotionEvent &e, Input::DragT
 
 bool SaturnSystem::onPointerInputEnd(const Input::MotionEvent &, Input::DragTrackerState, WRect)
 {
-	if(inputConfig.devs[0] != InputDeviceType::gun)
+	if(activeInputConfig.devs[0] != InputDeviceType::gun)
 		return false;
 	auto &gunData = asGunData(inputBuff[0]);
 	gunData.trigger = 0;

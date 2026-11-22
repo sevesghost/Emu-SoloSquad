@@ -273,4 +273,127 @@ constexpr int fanOutPlayers(int playerCount) noexcept
 	return n < 1 ? 1 : n;
 }
 
+// ---- Saturn Quad joint pad ------------------------------------------------
+// Joint layout: one pad whose presses go to every linked player, plus a strip
+// with each player's Start and a link chip. Separate layout: one pad per player
+// (roles 0..3, as saved by v1.2). Both sets stay in the config, so switching
+// keeps each set's positions. NEO-Duo uses roles 0..69 and never reaches 128.
+inline constexpr uint8_t kJointRoleDpad = 128;
+inline constexpr uint8_t kJointRoleFace = 129;
+inline constexpr uint8_t kJointRoleL = 130;
+inline constexpr uint8_t kJointRoleR = 131;
+inline constexpr uint8_t kJointRoleStart = 132;
+// A group added from "Add New Button Group". Shown in every layout and
+// pressed for every linked player.
+inline constexpr uint8_t kJointRoleAdded = 133;
+// Saved when the user deletes every joint element, so it is not rebuilt.
+inline constexpr uint8_t kJointRoleEmptied = 134;
+inline constexpr uint8_t kJointRolePlayerStart = 136; // 136..139 = P1..P4 Start
+inline constexpr uint8_t kJointRoleLink = 140;        // 140..143 = P1..P4 link chip
+inline constexpr uint8_t kJointRoleEnd = 144;
+
+constexpr bool isJointRole(uint8_t role) noexcept
+{
+	return role >= kJointRoleDpad && role < kJointRoleEnd;
+}
+
+constexpr bool isJointPlayerRole(uint8_t role) noexcept
+{
+	return role >= kJointRolePlayerStart && role < kJointRoleEnd;
+}
+
+// P1..P4 index of a per-player joint element, or -1.
+constexpr int jointRolePlayer(uint8_t role) noexcept
+{
+	return isJointPlayerRole(role) ? int(role - kJointRolePlayerStart) & 3 : -1;
+}
+
+enum class QuadPart : uint8_t
+{
+	Separate,    // one player's own pad
+	Joint,       // the shared pad
+	JointPlayer, // a player's Start or link chip in the joint strip
+	Always,      // a group the user added
+};
+
+constexpr QuadPart quadPartOf(uint8_t role) noexcept
+{
+	if(role == kJointRoleAdded)
+		return QuadPart::Always;
+	if(isJointPlayerRole(role))
+		return QuadPart::JointPlayer;
+	if(isJointRole(role))
+		return QuadPart::Joint;
+	return QuadPart::Separate;
+}
+
+// One player always uses the joint pad: it is a normal single pad then.
+// With 2 or 4 players the layout picks the joint pad or the separate pads.
+constexpr bool quadPartVisible(QuadPart part, int player, int playerCount, bool jointLayout) noexcept
+{
+	const bool single = playerCount <= 1;
+	switch(part)
+	{
+		case QuadPart::Always: return true;
+		case QuadPart::Joint: return single || jointLayout;
+		case QuadPart::JointPlayer: return !single && jointLayout && player >= 0 && player < playerCount;
+		case QuadPart::Separate: return !single && !jointLayout && player >= 0 && player < playerCount;
+	}
+	return false;
+}
+
+// ---- Player links -----------------------------------------------------------
+// Bit p set: the joint pad drives player p. Not saved; every launch starts
+// with all players linked.
+inline constexpr uint8_t kAllPlayersLinked = 0x0F;
+
+constexpr uint8_t activePlayerBits(int playerCount) noexcept
+{
+	int n = playerCount < 1 ? 1 : (playerCount > maxDuoPlayers ? maxDuoPlayers : playerCount);
+	return uint8_t((1u << n) - 1u);
+}
+
+// Linked players among the active ones. Never empty: with nobody linked the
+// pad drives every active player.
+constexpr uint8_t effectiveLinkMask(uint8_t linked, int playerCount) noexcept
+{
+	auto active = activePlayerBits(playerCount);
+	auto mask = uint8_t(linked & active);
+	return mask ? mask : active;
+}
+
+// Tap on a chip: link or unlink that player. The last linked player stays.
+constexpr uint8_t linkAfterTap(uint8_t linked, int player, int playerCount) noexcept
+{
+	auto active = activePlayerBits(playerCount);
+	if(player < 0 || player >= maxDuoPlayers || !(active & (1u << player)))
+		return linked;
+	auto next = uint8_t(effectiveLinkMask(linked, playerCount) ^ (1u << player));
+	if(!next)
+		return linked;
+	return uint8_t((linked & ~active) | next);
+}
+
+// Hold on a chip: drive only that player. Holding the only linked player's
+// chip links everyone again.
+constexpr uint8_t linkAfterHold(uint8_t linked, int player, int playerCount) noexcept
+{
+	auto active = activePlayerBits(playerCount);
+	if(player < 0 || player >= maxDuoPlayers || !(active & (1u << player)))
+		return linked;
+	auto bit = uint8_t(1u << player);
+	if(effectiveLinkMask(linked, playerCount) == bit)
+		return kAllPlayersLinked;
+	return bit;
+}
+
+// Ports a joint press reaches. With one on-screen player that is the
+// "Virtual Gamepad Player" port, which may be past P4.
+constexpr uint16_t jointTargetPorts(uint8_t linked, int playerCount, int inputPlayer) noexcept
+{
+	if(playerCount <= 1)
+		return uint16_t(1u << (inputPlayer < 0 ? 0 : (inputPlayer & 15)));
+	return effectiveLinkMask(linked, playerCount);
+}
+
 }

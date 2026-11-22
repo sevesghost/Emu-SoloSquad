@@ -488,6 +488,8 @@ public:
 		auto label = visit([&](auto &e){ return e.name(mgr); });
 		if(!fixedPlayer())
 			return label;
+		if(isSharedSet() && isJointRole(duoRole))
+			return "Joint " + label;
 		return std::string{playerFaceLabel(playerIndex(), isSharedSet())} + label;
 	}
 
@@ -757,8 +759,25 @@ public:
 	uint8_t emptiedPlayerMask() const;
 	uint8_t presentPlayerMask() const;
 	void buildGenericQuadSets();
+	// Bits 0-3 lay out only those players' own pads, bit 4 only the joint
+	// pad. 0 lays out everything.
+	static constexpr uint8_t layoutJointPad = 1 << 4;
 	void layoutGenericQuadSets(uint8_t onlyPlayers = 0);
 	void refreshGenericQuadSizes();
+	// Saturn Quad keeps the joint pad and the per-player pads in one list.
+	// The player count and the Joint/Separate choice decide which are drawn
+	// and accept touches.
+	bool elementIsActive(const VControllerElement &) const;
+	bool hasJointElements() const;
+	bool jointSetWasEmptied() const;
+	// Players the joint pad drives (bit per port). With one on-screen player
+	// that is the Virtual Gamepad Player.
+	uint16_t jointTargetPorts() const;
+	uint8_t linkedPlayers() const { return linkMask_; }
+	void setLinkedPlayers(uint8_t mask);
+	// Re-applies a fixed-player element's port, or the joint flag, after its
+	// keys were edited.
+	void bindKeysToSet(VControllerElement &elem) const { bindElementToItsPlayer(elem); }
 
 private:
 	ApplicationContext appCtx{};
@@ -793,6 +812,7 @@ private:
 	std::array<uint8_t, 4> playerAlpha_{uint8_t(255 * .5f), uint8_t(255 * .5f), uint8_t(255 * .5f), uint8_t(255 * .5f)};
 	uint8_t sharedAlpha_{uint8_t(255 * .4f)};
 	bool lockPlayerSizes_{};
+	uint8_t linkMask_{kAllPlayersLinked};
 	float bottomInsetMM_[2]{};
 	bool physicalControlsPresent{};
 	bool gamepadIsVisible{gamepadControlsVisibility_ != VControllerVisibility::OFF};
@@ -810,6 +830,11 @@ private:
 	void applyButtonSize();
 	void resetEmulatedDeviceGroups(bool keepEmptied);
 	void supplementMissingPlayers();
+	void buildJointSet();
+	void ensureJointEmptiedMarker();
+	bool usesDuoSets() const;
+	void onLinkChipReleased(int player, bool held);
+	void retargetHeldJointKeys(uint16_t before, uint16_t after);
 	void applyEmptiedMask(uint8_t mask);
 	void bindElementToItsPlayer(VControllerElement &) const;
 	uint8_t alphaForSet(uint8_t setField) const;

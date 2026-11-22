@@ -213,7 +213,8 @@ bool InputManager::handleAppActionKeyInput(EmuApp& app, InputAction action, cons
 		}
 		break;
 		case toggleDuoLayout:
-			break;
+		case togglePlayerLink:
+			break; // handled by VController where the touch happens
 	}
 	return false;
 }
@@ -222,9 +223,9 @@ void InputManager::handleSystemKeyInput(EmuApp& app, KeyInfo keyInfo, Input::Act
 {
 	if(flags.allowTurboModifier && turboModifierActive && std::ranges::all_of(keyInfo.codes, AppMeta::allowsTurboModifier))
 		keyInfo.flags.turbo = 1;
-	// A both-players button is one physical control. Fan it out to player 0 and
-	// player 1 after turbo bookkeeping, and do not let the fan-out highlight a
-	// different player's button that happens to share the same key codes.
+	// A both-players (joint) button is one physical control. Fan it out to the
+	// linked players after turbo bookkeeping, and do not let the fan-out
+	// highlight a different player's button that shares the same key codes.
 	if(keyInfo.flags.bothPlayers)
 	{
 		if(!flags.skipHighlight)
@@ -241,9 +242,11 @@ void InputManager::handleSystemKeyInput(EmuApp& app, KeyInfo keyInfo, Input::Act
 			auto child = flags;
 			child.skipHighlight = true;
 			child.allowTurboModifier = false;
-			int ports = std::max(1, app.defaultVController().activePlayerCount());
-			for(int port = 0; port < ports; ++port)
+			auto ports = app.defaultVController().jointTargetPorts();
+			for(int port = 0; port < 16; ++port)
 			{
+				if(!(ports & (1u << port)))
+					continue;
 				fan.flags.deviceId = uint8_t(port);
 				handleSystemKeyInput(app, fan, act, metaState, child);
 			}
@@ -271,9 +274,11 @@ void InputManager::handleSystemKeyInput(EmuApp& app, KeyInfo keyInfo, Input::Act
 			auto child = flags;
 			child.skipHighlight = true;
 			child.allowTurboModifier = false;
-			int ports = std::max(1, app.defaultVController().activePlayerCount());
-			for(int port = 0; port < ports; ++port)
+			auto ports = app.defaultVController().jointTargetPorts();
+			for(int port = 0; port < 16; ++port)
 			{
+				if(!(ports & (1u << port)))
+					continue;
 				fan.flags.deviceId = uint8_t(port);
 				handleSystemKeyInput(app, fan, act, metaState, child);
 			}
@@ -725,6 +730,7 @@ std::string_view toString(AppKeyCode code)
 		case AppKeyCode::hardReset: return "Hard Reset";
 		case AppKeyCode::resetMenu: return "Open Reset Menu";
 		case AppKeyCode::toggleDuoLayout: return "Toggle Control Layout";
+		case AppKeyCode::togglePlayerLink: return "Player Link";
 	};
 	return "";
 }

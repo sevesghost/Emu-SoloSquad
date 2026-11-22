@@ -158,12 +158,15 @@ public:
 	void saveCartNV(FileIO &);
 	void applyInputConfig(InputConfig, EmuApp&);
 	void applyInputConfig(EmuApp& app) { applyInputConfig(inputConfig, app); }
-	// Four on-screen players need the first controller port's multitap.
-	// That port cannot stay a light gun.
-	// Turning it off only undoes what turning it on did: a multitap the user
-	// enabled from the menu stays on when going back to 1 or 2 players.
-	void enablePort1Multitap(bool enabled);
-	bool port1MultitapAuto{};
+	// Four on-screen players need a multitap with four gamepads on the first
+	// controller port. That is laid over the game's own input settings when
+	// they are applied, and never written into them: going back to 1 or 2
+	// players restores exactly what the user chose, including a light gun or
+	// a multitap they turned on themselves.
+	void setTouchMultitap(bool on, EmuApp &);
+	InputConfig effectiveInputConfig(InputConfig) const;
+	bool touchMultitap{};
+	InputConfig activeInputConfig{}; // what SMPC is programmed with
 	void setInputConfig(InputConfig, EmuApp&);
 	int currentDiscId() const;
 	void setDisc(int id);

@@ -381,16 +381,18 @@ class ConsoleOptionView : public TableView, public MainAppHelper
 
 	TextHeadingMenuItem inputHeading{"Input", attachParams()};
 
+	// With four on-screen players Port 1's multitap and its first four pads
+	// are fixed. The menu shows that, and greys those items out.
+	auto activeConfig() const { return system().effectiveInputConfig(system().inputConfig); }
+
 	BoolMenuItem multitapItem(int idx)
 	{
 		return { std::format("Port {} Multitap", idx + 1), attachParams(),
-			system().inputConfig.multitaps[idx],
+			activeConfig().multitaps[idx],
 			[this, idx](BoolMenuItem &item)
 			{
 				system().sessionOptionSet();
 				system().inputConfig.multitaps[idx] = item.flipBoolValue(*this);
-				if(idx == 0)
-					system().port1MultitapAuto = false;
 				system().applyInputConfig(app());
 				updateActiveDevices();
 			}
@@ -411,7 +413,7 @@ class ConsoleOptionView : public TableView, public MainAppHelper
 	MultiChoiceMenuItem inputDeviceItem(int idx)
 	{
 		return {std::format("Port {}", idx + 1), attachParams(),
-			MenuId{system().inputConfig.devs[idx]},
+			MenuId{activeConfig().devs[idx]},
 			inputDeviceItems,
 			{
 				.onSelect = [this, idx](MultiChoiceMenuItem &item, View &view, const Input::Event &e)
@@ -446,20 +448,29 @@ class ConsoleOptionView : public TableView, public MainAppHelper
 
 	void updateActiveDevices()
 	{
+		auto config = activeConfig();
 		for(auto &i : inputDevices)
 		{
 			i.setActive(true);
 		}
-		if(!system().inputConfig.multitaps[0] && !system().inputConfig.multitaps[1]) // no multitaps
+		if(!config.multitaps[0] && !config.multitaps[1]) // no multitaps
 		{
 			for(auto &i : inputDevices | std::views::drop(2) | std::views::take(10))
 			{
 				i.setActive(false);
 			}
 		}
-		else if(system().inputConfig.multitaps[0] != system().inputConfig.multitaps[1]) // 1 multitap
+		else if(config.multitaps[0] != config.multitaps[1]) // 1 multitap
 		{
 			for(auto &i : inputDevices | std::views::drop(7))
+			{
+				i.setActive(false);
+			}
+		}
+		if(system().touchMultitap)
+		{
+			multitaps[0].setActive(false);
+			for(auto &i : inputDevices | std::views::take(4))
 			{
 				i.setActive(false);
 			}
