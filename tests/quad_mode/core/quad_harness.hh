@@ -58,11 +58,18 @@ Rgb color(int set);
 void switchLayout();                  // Mode button action: Joint/Separate (or next layout)
 void setPlayers(int n);               // 1,2,4 player touch layouts
 int players();
+void setInputPlayer(int player);      // Virtual Gamepad Player, 0-based (1P port)
+int inputPlayer();
 uint8_t savedDuoFlags(const std::vector<uint8_t> &cfg, int set, int key); // from BYTES, not memory
 uint8_t savedDuoRole(const std::vector<uint8_t> &cfg, int set, int key);
 std::vector<uint8_t> neoDuo2PlayerConfig(); // config blob in NEO-Duo v1.1 format (roles 0..1)
 void resetUIGroups();                 // "Reset UI Groups": restores default UI incl. Mode, clears removed flag
 bool multitapEnabled(int port);       // Saturn SMPC multitap on port 0/1 (input.cc SMPC_SetMultitap)
+bool modeHoldShouldToggle(bool pressBeganOnMode, bool heldLongEnough);
+bool modePressRemainsPending(bool pending, bool samePointer, bool releasedOrCanceled);
+bool midGameOverlayTap(bool currentlyOn, bool wanted, bool gameLoaded, bool singlePlayer = false);
+bool midGameOverlayDeferred(bool currentlyOn, bool wanted, bool gameLoaded, bool singlePlayer = false);
+int overlayForcedPadEnd(int port, int playerCount, int inputPlayer);
 void setPadSize(int set, int sizeMM100x); int padSize(int set);   // per-player size (P3/P4 must not overwrite P2)
 void setPadAlpha(int set, int alpha); int padAlpha(int set);
 PortInputs pressTurbo(int set, int key); // shared turbo/toggle path (EmuInput.cc) for a set's button

@@ -60,7 +60,7 @@ On-screen Input Setup has **On-screen Players** (**1 Player**, **2 Players**, **
 - P1 blue, P2 red, P3 green, P4 amber. A press on one pad goes only to that player. Two players share the bottom edge; four players use the four corners of the screen.
 - The default positions keep every pad off the corner buttons (fast-forward and rewind on the left, Open Menu and Mode on the right) and keep L, R and Start off the D-pad and face buttons. On a phone the four pads use about 8.5 mm buttons so they fit.
 
-**1 Player** uses the joint pad as a normal single pad, for the port chosen in **Virtual Gamepad Player**.
+**1 Player** uses the joint pad as a normal single pad, for the port chosen in **Virtual Gamepad Player** (saved in the config). Ports 3-6 turn on a Port 1 multitap; ports 7-12 also turn on a Port 2 multitap, so those ports exist on the Saturn bus.
 
 More details:
 
@@ -68,7 +68,7 @@ More details:
 - The setup screens, Set Button Positions included, only show and move the buttons of the current player count and layout.
 - **Joint Pad Button Size** and **Joint Pad Opacity** set the joint pad. **Player Pad Button Size** sets all four separate pads, and **Player Color Opacity** sets everything drawn in a player's colour, chips included.
 - A group added with **Add New Button Group** shows in every layout and presses for every linked player.
-- Four on-screen players put a multitap with four gamepads on controller port 1, laid over the game's own input settings instead of written into them. Back at 1 or 2 players the game's own settings apply again, including a light gun or a multitap you turned on yourself. While four players are on screen, Console Options shows Port 1 Multitap and its first four pads greyed out.
+- Four on-screen players put a multitap with gamepads on controller port 1, laid over the game's own input settings instead of written into them. While a game is running, an overlay tap that is already on stays so player 2 is not remapped when you switch to 1 or 2 players. Switching from 1 or 2 players to 4 also leaves the current hookup in place, and a message asks you to reset or reload the game for players 3 and 4. In 1 Player mode, changing Virtual Gamepad Player to port 3 or higher turns on the needed taps immediately. Loading a game applies only the taps the current layout and Virtual Gamepad Player need, plus any you turned on yourself (including a light gun). Console Options greys out the overlay taps and their pads while they are in use.
 - The Mode button's removal, position and hidden state are kept as before (bit 7 on the UI-button trailer, no new config key; **Reset UI Groups** brings it back). A new or reset Mode button sits under Open Menu at the top right.
 - Joint buttons are stored in the existing `CFGKEY_VCONTROLLER_DEVICE_BUTTONS_V3` block with duo roles 128-143. A v1.2 config loads as it was and gains the joint pad; its own pads stay where they were saved.
 - Back out of On-screen Input Setup (or out of Set Button Positions) writes the config before the screen closes. Pausing or exiting the app writes it again.

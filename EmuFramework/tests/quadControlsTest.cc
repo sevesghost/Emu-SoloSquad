@@ -211,7 +211,18 @@ int main()
 	expect(!p3.modeRemoved, "deleting P3 does not remove the mode button");
 
 	expect(fanOutPlayers(4) == 4 && fanOutPlayers(2) == 2 && fanOutPlayers(1) == 1, "shared keys fan out to every active player");
-	expect(port1MultitapRequired(4) && !port1MultitapRequired(2), "multitap is only required for 4 players");
+	expect(port1MultitapRequired(4) && !port1MultitapRequired(2) && !port1MultitapRequired(1),
+		"4 players always need a Port 1 multitap; 2 players and 1P on P1 do not");
+	expect(port1MultitapRequired(1, 2) && port1MultitapRequired(1, 5) && port1MultitapRequired(1, 6),
+		"1P on P3-P6 and P7-P12 needs a Port 1 multitap");
+	expect(!port1MultitapRequired(1, 0) && !port1MultitapRequired(1, 1),
+		"1P on P1 or P2 uses the two native ports");
+	expect(port2MultitapRequired(1, 6) && port2MultitapRequired(1, 11) && !port2MultitapRequired(1, 5)
+		&& !port2MultitapRequired(4, 11) && !port2MultitapRequired(2, 6),
+		"only 1P on P7-P12 needs a Port 2 multitap");
+	expect(modeHoldTogglesLayout(true, true) && !modeHoldTogglesLayout(false, true)
+		&& !modeHoldTogglesLayout(true, false),
+		"Mode toggles only when the press began on Mode and was held long enough");
 
 	auto ext = encodeQuadExtension({4, 1200, 1300, 64, 80});
 	auto back = decodeQuadExtension(ext);

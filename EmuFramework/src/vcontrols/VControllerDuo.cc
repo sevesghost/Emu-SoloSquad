@@ -1,5 +1,6 @@
 #include <emuframework/VController.hh>
 #include <emuframework/EmuApp.hh>
+#include <emuframework/InputManager.hh>
 #include <emuframework/AppKeyCode.hh>
 #include <emuframework/AppMeta.hh>
 #include <emuframework/QuadControls.hh>
@@ -274,7 +275,7 @@ void VController::setPlayerControls(int players)
 	twoPlayer_ = players > 1;
 	if(players > previous || isQuad())
 		supplementMissingPlayers();
-	AppMeta::setPort1Multitap(port1MultitapRequired(players));
+	syncTouchMultitaps(true);
 	syncDuoModeButton();
 	if(hasWindow())
 	{
@@ -963,6 +964,14 @@ void VController::supplementMissingPlayers()
 
 // ---- Player links -----------------------------------------------------------
 
+void VController::syncTouchMultitaps(bool keepExisting)
+{
+	AppMeta::setTouchMultitaps(
+		port1MultitapRequired(activePlayerCount(), inputPlayer_),
+		port2MultitapRequired(activePlayerCount(), inputPlayer_),
+		keepExisting);
+}
+
 void VController::retargetHeldJointKeys(uint16_t before, uint16_t after)
 {
 	auto removed = uint16_t(before & ~after);
@@ -970,29 +979,38 @@ void VController::retargetHeldJointKeys(uint16_t before, uint16_t after)
 	if(!removed && !added)
 		return;
 	auto &app = this->app();
+	auto retarget = [&](KeyInfo key, bool pushAdded)
+	{
+		if(!key || !key.flags.bothPlayers)
+			return;
+		auto direct = key;
+		direct.flags.bothPlayers = 0;
+		direct.flags.turbo = 0;
+		direct.flags.toggle = 0;
+		for(int port = 0; port < 16; ++port)
+		{
+			auto bit = uint16_t(1u << port);
+			direct.flags.deviceId = uint8_t(port);
+			// A player dropped from the pad lets go of what it was holding.
+			if(removed & bit)
+				app.handleSystemKeyInput(direct, Input::Action::RELEASED, 0, {.allowTurboModifier = false, .skipHighlight = true});
+			// A player joining picks up a held direction or button at once.
+			else if(pushAdded && (added & bit))
+				app.handleSystemKeyInput(direct, Input::Action::PUSHED, 0, {.allowTurboModifier = false, .skipHighlight = true});
+		}
+	};
 	for(auto &state : dragTracker.stateList())
 	{
 		for(auto key : state.data)
-		{
-			if(!key || !key.flags.bothPlayers)
-				continue;
-			auto direct = key;
-			direct.flags.bothPlayers = 0;
-			direct.flags.turbo = 0;
-			direct.flags.toggle = 0;
-			for(int port = 0; port < 16; ++port)
-			{
-				auto bit = uint16_t(1u << port);
-				direct.flags.deviceId = uint8_t(port);
-				// A player dropped from the pad lets go of what it was holding.
-				if(removed & bit)
-					app.handleSystemKeyInput(direct, Input::Action::RELEASED, 0, {.allowTurboModifier = false, .skipHighlight = true});
-				// A player joining picks up a held direction or button at once.
-				else if((added & bit) && !key.flags.turbo && !key.flags.toggle)
-					app.handleSystemKeyInput(direct, Input::Action::PUSHED, 0, {.allowTurboModifier = false, .skipHighlight = true});
-			}
-		}
+			retarget(key, !key.flags.turbo && !key.flags.toggle);
 	}
+	// Toggle stays latched after the finger lifts, so it is not in the
+	// tracker. Unlinking a player must still release that port, or turning
+	// the toggle off later will miss it (it only fans out to current ports).
+	for(auto key : app.inputManager.toggleInput.keys)
+		retarget(key, true);
+	for(auto key : app.inputManager.turboActions.keys)
+		retarget(key, false);
 }
 
 void VController::setLinkedPlayers(uint8_t mask)
@@ -1043,6 +1061,11 @@ void VController::onLinkChipReleased(int player, bool held)
 
 [[gnu::weak]] void AppMeta::refreshDuoButtonSizes(VController &) {}
 
-[[gnu::weak]] void AppMeta::setPort1Multitap(bool) {}
+[[gnu::weak]] void AppMeta::setTouchMultitaps(bool, bool, bool) {}
+
+[[gnu::weak]] void AppMeta::setPort1Multitap(bool enabled)
+{
+	setTouchMultitaps(enabled, false, false);
+}
 
 }

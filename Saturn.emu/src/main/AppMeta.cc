@@ -287,8 +287,7 @@ bool AppMeta::buildDuoGamepad(VController &v)
 	v.buildGenericQuadSets();
 	if(v.hasWindow())
 		v.layoutGenericQuadSets();
-	if(v.playerControls() >= 4)
-		setPort1Multitap(true);
+	v.syncTouchMultitaps(false);
 	return true;
 }
 
@@ -302,9 +301,14 @@ void AppMeta::refreshDuoButtonSizes(VController &v)
 	v.refreshGenericQuadSizes();
 }
 
+void AppMeta::setTouchMultitaps(bool port1, bool port2, bool keepExisting)
+{
+	static_cast<SaturnSystem&>(gSystem()).setTouchMultitaps(port1, port2, keepExisting, gApp());
+}
+
 void AppMeta::setPort1Multitap(bool enabled)
 {
-	static_cast<SaturnSystem&>(gSystem()).setTouchMultitap(enabled, gApp());
+	setTouchMultitaps(enabled, false, false);
 }
 
 void AppMeta::onCustomizeNavView(AppNavView& view)

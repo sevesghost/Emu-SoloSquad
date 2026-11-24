@@ -158,14 +158,21 @@ public:
 	void saveCartNV(FileIO &);
 	void applyInputConfig(InputConfig, EmuApp&);
 	void applyInputConfig(EmuApp& app) { applyInputConfig(inputConfig, app); }
-	// Four on-screen players need a multitap with four gamepads on the first
-	// controller port. That is laid over the game's own input settings when
-	// they are applied, and never written into them: going back to 1 or 2
-	// players restores exactly what the user chose, including a light gun or
-	// a multitap they turned on themselves.
-	void setTouchMultitap(bool on, EmuApp &);
+	// Overlay multitaps are laid over the game's own input settings and
+	// never written into them. 4 on-screen players use Port 1. In 1-player
+	// mode, Virtual Gamepad Player 3-6 also use Port 1, and 7-12 use both
+	// ports. Mid-game, an already-on tap stays so dropping from 4 players
+	// to 1 or 2 does not remap P2. Switching from 1-2P to 4P also leaves
+	// the hookup unchanged until reload (a toast asks for that reload).
+	// In 1P, a newly needed tap for Virtual Gamepad Player 3+ is applied
+	// immediately. Loading a game applies only the taps the current layout
+	// needs, plus any the user turned on in Console Options (including a
+	// light gun).
+	void setTouchMultitaps(bool port1, bool port2, bool keepExisting, EmuApp &);
+	void setTouchMultitap(bool on, EmuApp &app) { setTouchMultitaps(on, false, false, app); }
 	InputConfig effectiveInputConfig(InputConfig) const;
-	bool touchMultitap{};
+	std::array<bool, 2> touchMultitap{};
+	std::array<uint8_t, 2> overlayPadEnd{4, 6}; // exclusive slot ends forced while a tap is on
 	InputConfig activeInputConfig{}; // what SMPC is programmed with
 	void setInputConfig(InputConfig, EmuApp&);
 	int currentDiscId() const;

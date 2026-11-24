@@ -79,7 +79,10 @@ struct AppMeta
 	static bool buildDuoGamepad(VController &);
 	static void layoutDuoGamepad(VController &);
 	static void refreshDuoButtonSizes(VController &);
-	// Saturn turns Port 1's multitap on when four on-screen players are active.
+	// Overlay multitaps the on-screen controls need. keepExisting leaves a
+	// tap that is already on in place while a game is loaded, so dropping
+	// from 4 players to 1 or 2 does not remap P2 mid-game.
+	static void setTouchMultitaps(bool port1, bool port2, bool keepExisting = false);
 	static void setPort1Multitap(bool enabled);
 
 	// Cheats

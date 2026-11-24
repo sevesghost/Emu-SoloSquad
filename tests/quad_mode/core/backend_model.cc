@@ -13,7 +13,7 @@ namespace {
 struct Btn { bool present = true, hidden = false; Pos p; };
 struct App {
 	std::map<int, Btn> set[numSets]; std::map<int, Btn> ui;
-	bool modeRemoved = false, editor = false, joint = false; int nPlayers = 4;
+	bool modeRemoved = false, editor = false, joint = false; int nPlayers = 4; int inputPlayer = 0;
 	int size[numSets]{1000, 1000, 1000, 1000}, alpha[numSets]{127, 127, 127, 127};
 	std::vector<uint8_t> disk; // what saveConfigFile wrote
 } app;
@@ -140,6 +140,8 @@ Rgb color(int s) { static const Rgb c[4]{{230, 60, 60}, {60, 120, 230}, {60, 200
 void switchLayout() { app.joint = !app.joint; }
 void setPlayers(int n) { app.nPlayers = n; if(hasBug("mode_switch_clears_bit7")) app.modeRemoved = false; syncDuoModeButton(); }
 int players() { return app.nPlayers; }
+void setInputPlayer(int player) { app.inputPlayer = player < 0 ? 0 : player; }
+int inputPlayer() { return app.inputPlayer; }
 static const Elem *findSaved(const std::vector<Elem> &es, int s, int k) {
 	for(auto &e : es) if(e.set == s && e.key == k) return &e;
 	if(s == uiSet) for(auto &e : es) if(e.set == uiSet) return &e; // any UI carrier/placeholder
@@ -148,7 +150,38 @@ static const Elem *findSaved(const std::vector<Elem> &es, int s, int k) {
 uint8_t savedDuoFlags(const std::vector<uint8_t> &cfg, int s, int k) { auto es = decode(cfg); auto e = findSaved(es, s, k); return e ? e->flags : 0; }
 uint8_t savedDuoRole(const std::vector<uint8_t> &cfg, int s, int k) { auto es = decode(cfg); auto e = findSaved(es, s, k); return e ? e->role : 0xFF; }
 void resetUIGroups() { app.ui.clear(); app.modeRemoved = false; freshUI(); syncDuoModeButton(); }
-bool multitapEnabled(int port) { return port == 0 && app.nPlayers > 2 && !hasBug("no_multitap"); }
+bool multitapEnabled(int port) {
+	if(hasBug("no_multitap")) return false;
+	if(port == 0) return app.nPlayers >= 4 || (app.nPlayers <= 1 && app.inputPlayer >= 2);
+	if(port == 1) return app.nPlayers <= 1 && app.inputPlayer >= 6;
+	return false;
+}
+bool modeHoldShouldToggle(bool pressBeganOnMode, bool heldLongEnough) { return pressBeganOnMode && heldLongEnough; }
+bool modePressRemainsPending(bool pending, bool samePointer, bool releasedOrCanceled) {
+	if(pending && samePointer && releasedOrCanceled) return false;
+	return pending;
+}
+bool midGameOverlayTap(bool currentlyOn, bool wanted, bool gameLoaded, bool singlePlayer) {
+	if(!gameLoaded) return wanted;
+	if(currentlyOn) return true;
+	return singlePlayer ? wanted : false;
+}
+bool midGameOverlayDeferred(bool currentlyOn, bool wanted, bool gameLoaded, bool singlePlayer) {
+	return gameLoaded && wanted && !currentlyOn && !singlePlayer;
+}
+int overlayForcedPadEnd(int port, int playerCount, int inputPlayer) {
+	if(port == 0) {
+		int end = 4;
+		if(playerCount <= 1 && inputPlayer >= 0 && inputPlayer < 6 && inputPlayer + 1 > end)
+			end = inputPlayer + 1;
+		return end;
+	}
+	if(port == 1) {
+		if(playerCount <= 1 && inputPlayer >= 6 && inputPlayer < 12) return inputPlayer + 1;
+		return 6;
+	}
+	return 0;
+}
 void setPadSize(int s, int v) { app.size[s] = v; } int padSize(int s) { return app.size[s]; }
 void setPadAlpha(int s, int v) { app.alpha[s] = v; } int padAlpha(int s) { return app.alpha[s]; }
 PortInputs pressTurbo(int s, int k) { if(hasBug("turbo_2p") && s >= 2) return {}; return press(s, k); }

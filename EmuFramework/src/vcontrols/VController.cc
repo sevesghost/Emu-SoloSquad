@@ -166,6 +166,18 @@ void VController::applyButtonSize()
 	setButtonSizes(emulatedDeviceButtonPixelSize(), uiButtonPixelSize());
 }
 
+namespace
+{
+SteadyClockTimePoint duoModeDown{};
+Input::PointerId duoModePointer{};
+bool duoModePress{};
+}
+
+void VController::clearPendingModePress()
+{
+	duoModePress = false;
+}
+
 void VController::resetInput()
 {
 	for(auto &e : dragTracker.stateList())
@@ -177,6 +189,7 @@ void VController::resetInput()
 		}
 	}
 	dragTracker.reset();
+	clearPendingModePress();
 }
 
 void VController::updateAltSpeedModeInput(AltSpeedMode mode, bool on)
@@ -312,6 +325,9 @@ KeyInfo VController::keyboardKeyFromPointer(const Input::MotionEvent &e)
 bool VController::pointerInputEvent(const Input::MotionEvent &e, WindowRect gameRect)
 {
 	assume(e.isPointer());
+	bool modeReleaseFallthrough = false;
+	if(e.canceled() && duoModePress && e.pointerId() == duoModePointer)
+		clearPendingModePress();
 	if(e.pushed() || e.released())
 	{
 		for(const auto &grp: uiElements)
@@ -324,22 +340,32 @@ bool VController::pointerInputEvent(const Input::MotionEvent &e, WindowRect game
 				{
 					if(btn.key.flags.appCode && AppKeyCode(btn.key.codes[0]) == AppKeyCode::toggleDuoLayout)
 					{
-						static SteadyClockTimePoint duoModeDown{};
 						if(e.pushed())
 						{
 							duoModeDown = e.time();
+							duoModePointer = e.pointerId();
+							duoModePress = true;
 							return true;
 						}
-						if(e.released() && e.time() - duoModeDown >= Milliseconds{500})
+						if(e.released())
 						{
-							setDuoLayout(duoLayout_ == DuoLayout::Joint ? DuoLayout::Separate : DuoLayout::Joint);
-							bool joint = duoLayout_ == DuoLayout::Joint;
-							if(AppMeta::maxPlayers > 2 && playerControls_ <= 1)
-								app().postMessage(2, false, joint ? "Joint layout (used with 2 or 4 players)" : "Separate layout (used with 2 or 4 players)");
-							else if(AppMeta::maxPlayers > 2)
-								app().postMessage(2, false, joint ? "Joint: one pad drives every linked player" : "Separate: one pad per player");
-							else
-								app().postMessage(2, false, joint ? "Joint layout" : "Separate layout");
+							const bool beganOnMode = duoModePress && e.pointerId() == duoModePointer;
+							clearPendingModePress();
+							if(modeHoldTogglesLayout(beganOnMode, e.time() - duoModeDown >= Milliseconds{500}))
+							{
+								setDuoLayout(duoLayout_ == DuoLayout::Joint ? DuoLayout::Separate : DuoLayout::Joint);
+								bool joint = duoLayout_ == DuoLayout::Joint;
+								if(AppMeta::maxPlayers > 2 && playerControls_ <= 1)
+									app().postMessage(2, false, joint ? "Joint layout (used with 2 or 4 players)" : "Separate layout (used with 2 or 4 players)");
+								else if(AppMeta::maxPlayers > 2)
+									app().postMessage(2, false, joint ? "Joint: one pad drives every linked player" : "Separate: one pad per player");
+								else
+									app().postMessage(2, false, joint ? "Joint layout" : "Separate layout");
+							}
+							// Do not swallow the release: a press that started on a
+							// pad and ended on Mode must still reach dragTracker.
+							modeReleaseFallthrough = true;
+							break;
 						}
 						return true;
 					}
@@ -347,8 +373,14 @@ bool VController::pointerInputEvent(const Input::MotionEvent &e, WindowRect game
 					return true;
 				}
 			}
+			if(modeReleaseFallthrough)
+				break;
 		}
 	}
+	// A press that started on Mode and was released or canceled off the
+	// button must not stay pending; a later release on Mode could toggle.
+	if((e.released() || e.canceled()) && duoModePress && e.pointerId() == duoModePointer)
+		clearPendingModePress();
 	static constexpr std::array<KeyInfo, 2> nullElems{};
 	auto newElems = nullElems;
 	if(isInKeyboardMode())
@@ -506,11 +538,20 @@ bool VController::isInKeyboardMode() const
 
 void VController::setInputPlayer(int8_t player)
 {
+	if(player < 0)
+		player = 0;
+	int cap = AppMeta::maxPlayers < 1 ? 1 : AppMeta::maxPlayers;
+	if(player >= cap)
+		player = int8_t(cap - 1);
+	auto before = jointTargetPorts();
 	inputPlayer_ = player;
 	for(auto &e : gpElements)
 	{
 		e.transposeKeysForPlayer(app().inputManager, player);
 	}
+	if(hasWindow())
+		retargetHeldJointKeys(before, jointTargetPorts());
+	syncTouchMultitaps(true);
 }
 
 bool VController::keyIsEnabled(KeyInfo k) const
@@ -826,6 +867,14 @@ bool VController::readConfig(EmuApp &app, MapIO &io, unsigned key)
 			return true;
 		case CFGKEY_VCONTROLLER_ALLOW_PAST_CONTENT_BOUNDS: return readOptionValue(io, allowButtonsPastContentBounds_);
 		case CFGKEY_VCONTROLLER_HIGHLIGHT_PUSHED_BUTTONS: return readOptionValue(io, highlightPushedButtons);
+		case CFGKEY_VCONTROLLER_INPUT_PLAYER:
+		{
+			int8_t player{};
+			if(!readOptionValue(io, player))
+				return false;
+			inputPlayer_ = player;
+			return true;
+		}
 		case CFGKEY_VCONTROLLER_DEVICE_BUTTONS_V3:
 		{
 			auto deviceId = io.get<uint8_t>();
@@ -1130,6 +1179,7 @@ void VController::writeConfig(FileIO &io) const
 	if(allowButtonsPastContentBounds_)
 		writeOptionValue(io, CFGKEY_VCONTROLLER_ALLOW_PAST_CONTENT_BOUNDS, true);
 	writeOptionValueIfNotDefault(io, CFGKEY_VCONTROLLER_HIGHLIGHT_PUSHED_BUTTONS, highlightPushedButtons, true);
+	writeOptionValueIfNotDefault(io, CFGKEY_VCONTROLLER_INPUT_PLAYER, inputPlayer_, int8_t{0});
 	writeDuoButtonsConfig(io);
 	// 1-player mode keeps its sets in the V3 block, including empty-set markers.
 	if(!twoPlayer_ && gpElements.empty())
@@ -1191,9 +1241,8 @@ void VController::configure(Window &win, Gfx::Renderer &renderer, const Gfx::Gly
 		if(usesDuoSets())
 			supplementMissingPlayers();
 	}
-	if(playerControls_ >= 4)
-		AppMeta::setPort1Multitap(true);
-	setInputPlayer(0);
+	syncTouchMultitaps(false);
+	setInputPlayer(inputPlayer_);
 	if(!explicitEmptyLayout)
 		syncDuoModeButton();
 }
