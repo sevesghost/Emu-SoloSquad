@@ -28,6 +28,7 @@ module;
 #include <ss/input/gun.h>
 #include <ss/input/keyboard.h>
 #include <ss/input/jpkeyboard.h>
+#include <emuframework/QuadControls.hh>
 
 module system;
 
@@ -100,24 +101,64 @@ static const char *toString(InputDeviceType dev)
 
 InputConfig SaturnSystem::effectiveInputConfig(InputConfig config) const
 {
-	if(!touchMultitap)
+	if(!touchMultitap[0] && !touchMultitap[1])
 		return config;
-	// Multitap slots 1-4 on port 1 are players 1-4. A light gun or an empty
-	// slot there would leave an on-screen player without a pad.
-	config.multitaps[0] = true;
-	for(int slot = 0; slot < 4; ++slot)
+	// Overlay taps fill only the slots this layout needs with pads so a
+	// light gun or an empty slot does not leave the on-screen player
+	// without a controller. 4P uses Port 1 slots 0-3; 1P extends through
+	// the selected player (P5-P6, or P7-P12 on Port 2).
+	auto forcePads = [&](int first, int last)
 	{
-		if(config.devs[slot] != InputDeviceType::gamepad && config.devs[slot] != InputDeviceType::multipad)
-			config.devs[slot] = InputDeviceType::gamepad;
+		for(int slot = first; slot < last; ++slot)
+		{
+			if(config.devs[slot] != InputDeviceType::gamepad && config.devs[slot] != InputDeviceType::multipad)
+				config.devs[slot] = InputDeviceType::gamepad;
+		}
+	};
+	if(touchMultitap[0])
+	{
+		config.multitaps[0] = true;
+		forcePads(0, overlayPadEnd[0]);
+	}
+	if(touchMultitap[1])
+	{
+		config.multitaps[1] = true;
+		forcePads(6, overlayPadEnd[1]);
 	}
 	return config;
 }
 
-void SaturnSystem::setTouchMultitap(bool on, EmuApp &app)
+void SaturnSystem::setTouchMultitaps(bool port1, bool port2, bool keepExisting, EmuApp &app)
 {
-	if(touchMultitap == on)
+	// Mid-game: never drop an overlay tap (unplugging remaps P2). Adding
+	// a Port 1 tap also remaps P2, so a 1-2P to 4P change waits until
+	// reload and shows a toast. In 1P there is no second on-screen
+	// player, so a newly needed tap (Virtual Gamepad Player 3+) is
+	// applied immediately. P1/P2 keep working on the current hookup
+	// when a 4P add is deferred.
+	auto &v = app.defaultVController();
+	const bool singlePlayer = v.playerControls() <= 1;
+	bool gameLoaded = CDInterfaces.size();
+	bool deferred = false;
+	if(keepExisting && gameLoaded)
+	{
+		deferred = midGameOverlayDeferred(touchMultitap[0], port1, true, singlePlayer)
+			|| midGameOverlayDeferred(touchMultitap[1], port2, true, singlePlayer);
+		port1 = midGameOverlayTap(touchMultitap[0], port1, true, singlePlayer);
+		port2 = midGameOverlayTap(touchMultitap[1], port2, true, singlePlayer);
+	}
+	overlayPadEnd[0] = uint8_t(overlayForcedPadEnd(0, v.playerControls(), v.inputPlayer()));
+	overlayPadEnd[1] = uint8_t(overlayForcedPadEnd(1, v.playerControls(), v.inputPlayer()));
+	if(deferred)
+	{
+		app.postMessage(4, false,
+			"Reload the game to apply the new player ports. "
+			"Switching mid-game keeps the current controllers so Player 2 is not moved.");
+	}
+	if(touchMultitap[0] == port1 && touchMultitap[1] == port2)
 		return;
-	touchMultitap = on;
+	touchMultitap[0] = port1;
+	touchMultitap[1] = port2;
 	applyInputConfig(app);
 }
 

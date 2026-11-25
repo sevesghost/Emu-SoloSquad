@@ -160,6 +160,68 @@ CASE("S1 4-player mode enables Saturn port-1 multitap; 2P does not need it") {
 	freshInstall(); setPlayers(4); CHECK_MSG(multitapEnabled(0), "4P without port-1 multitap: P3/P4 have no port");
 	relaunch(); CHECK(multitapEnabled(0));
 	setPlayers(2); CHECK(!multitapEnabled(0));
+	CHECK(!multitapEnabled(1));
+}
+CASE("S1c 1P Virtual Gamepad Player 3-6 needs Port 1 tap; 7-12 needs both taps") {
+	freshInstall();
+	setPlayers(1);
+	setInputPlayer(0);
+	CHECK_MSG(!multitapEnabled(0) && !multitapEnabled(1), "1P on P1 should use the native port");
+	setInputPlayer(1);
+	CHECK_MSG(!multitapEnabled(0) && !multitapEnabled(1), "1P on P2 should use the native port");
+	for(int p : {2, 3, 4, 5})
+	{
+		setInputPlayer(p);
+		CHECK_MSG(multitapEnabled(0) && !multitapEnabled(1),
+			"1P on P" + std::to_string(p + 1) + " needs Port 1 only");
+	}
+	for(int p : {6, 11})
+	{
+		setInputPlayer(p);
+		CHECK_MSG(multitapEnabled(0) && multitapEnabled(1),
+			"1P on P" + std::to_string(p + 1) + " needs both taps");
+	}
+	setPlayers(4);
+	CHECK_MSG(multitapEnabled(0) && !multitapEnabled(1), "4P still uses only Port 1");
+	setPlayers(2);
+	CHECK_MSG(!multitapEnabled(0) && !multitapEnabled(1), "2P decision function does not force a tap");
+}
+CASE("S1d Mode only toggles after a press that began on Mode and was held") {
+	CHECK(modeHoldShouldToggle(true, true));
+	CHECK(!modeHoldShouldToggle(false, true));
+	CHECK(!modeHoldShouldToggle(true, false));
+	CHECK(!modeHoldShouldToggle(false, false));
+}
+CASE("S1e Mode press is cleared on release off Mode, cancel, or a later same-pointer release") {
+	// Release or cancel of the same pointer (including off the button) drops the pending press.
+	CHECK(!modePressRemainsPending(true, true, true));
+	CHECK(modePressRemainsPending(true, false, true)); // a different pointer does not clear it
+	CHECK(modePressRemainsPending(true, true, false)); // still down
+	CHECK(!modePressRemainsPending(false, true, true));
+	// After a drag-off release, a later long release on Mode must not toggle.
+	CHECK(!modeHoldShouldToggle(modePressRemainsPending(true, true, true), true));
+}
+CASE("S1f mid-game 4P overlay add is deferred; 1P may add a tap immediately") {
+	CHECK(!midGameOverlayTap(false, false, false, false));
+	CHECK(midGameOverlayTap(false, true, false, false));  // no game: 2P->4P applies
+	CHECK(!midGameOverlayTap(true, false, false, false));
+	CHECK(midGameOverlayTap(true, false, true, false));   // mid-game 4P->2P: keep
+	CHECK(!midGameOverlayTap(false, true, true, false));  // mid-game 1-2P->4P: defer add
+	CHECK(midGameOverlayDeferred(false, true, true, false));
+	CHECK(!midGameOverlayDeferred(true, false, true, false));
+	CHECK(!midGameOverlayDeferred(false, true, false, false));
+	CHECK(midGameOverlayTap(false, true, true, true));    // mid-game 1P P3+: add immediately
+	CHECK(!midGameOverlayDeferred(false, true, true, true));
+	CHECK(midGameOverlayTap(true, false, true, true));    // 1P still never drops a tap
+	CHECK(!midGameOverlayDeferred(true, false, true, true));
+	CHECK(overlayForcedPadEnd(0, 4, 0) == 4);  // 4P: slots 0-3, not 0-5
+	CHECK(overlayForcedPadEnd(0, 2, 0) == 4);
+	CHECK(overlayForcedPadEnd(0, 1, 0) == 4);
+	CHECK(overlayForcedPadEnd(0, 1, 4) == 5);  // 1P P5
+	CHECK(overlayForcedPadEnd(0, 1, 5) == 6);  // 1P P6
+	CHECK(overlayForcedPadEnd(1, 4, 0) == 6);  // no Port 2 slots
+	CHECK(overlayForcedPadEnd(1, 1, 6) == 7);  // 1P P7: slot 6 only
+	CHECK(overlayForcedPadEnd(1, 1, 11) == 12);
 }
 CASE("S1b 4P: open game -> resetSessionOptions()/applyInputConfig keeps multitaps[0]=true, devs[0..3]=gamepad") {
 	PENDING("Saturn.emu session path (EmuSystem.cc:352 resetSessionOptions, EmuApp.cc:1041 applyInputConfig, input.cc:101-123) needs Mednafen SMPC + EmuApp; not host-testable in this harness -- verify on device / via ออก code review");

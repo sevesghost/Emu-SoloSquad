@@ -18,7 +18,7 @@ namespace {
 struct Btn { bool present = true, hidden = false; Pos p; };
 struct App {
 	std::map<int, Btn> set[numSets]; std::map<int, Btn> ui;
-	bool modeRemoved = false, editor = false, joint = false; int nPlayers = 4;
+	bool modeRemoved = false, editor = false, joint = false; int nPlayers = 4; int inputPlayer = 0;
 	int size[numSets]{1000, 1000, 1000, 1000}, alpha[numSets]{127, 127, 127, 127};
 	std::vector<uint8_t> disk; // what saveConfigFile wrote
 } app;
@@ -151,6 +151,8 @@ Rgb color(int s) { auto c = EmuEx::duoRoleColorRgba(s); return {uint8_t(c.r * 25
 void switchLayout() { app.joint = !app.joint; }
 void setPlayers(int n) { app.nPlayers = EmuEx::clampPlayerCount(n); if(hasBug("mode_switch_clears_bit7")) app.modeRemoved = false; syncDuoModeButton(); }
 int players() { return app.nPlayers; }
+void setInputPlayer(int player) { app.inputPlayer = player < 0 ? 0 : player; }
+int inputPlayer() { return app.inputPlayer; }
 static const Elem *findSaved(const std::vector<Elem> &es, int s, int k) {
 	for(auto &e : es) if(e.set == s && e.key == k) return &e;
 	if(s == uiSet) for(auto &e : es) if(e.set == uiSet) return &e; // any UI carrier/placeholder
@@ -159,7 +161,26 @@ static const Elem *findSaved(const std::vector<Elem> &es, int s, int k) {
 uint8_t savedDuoFlags(const std::vector<uint8_t> &cfg, int s, int k) { auto es = decode(cfg); auto e = findSaved(es, s, k); return e ? e->flags : 0; }
 uint8_t savedDuoRole(const std::vector<uint8_t> &cfg, int s, int k) { auto es = decode(cfg); auto e = findSaved(es, s, k); return e ? e->role : 0xFF; }
 void resetUIGroups() { app.ui.clear(); app.modeRemoved = false; freshUI(); syncDuoModeButton(); }
-bool multitapEnabled(int port) { return port == 0 && EmuEx::port1MultitapRequired(app.nPlayers); }
+bool multitapEnabled(int port) {
+	if(port == 0) return EmuEx::port1MultitapRequired(app.nPlayers, app.inputPlayer);
+	if(port == 1) return EmuEx::port2MultitapRequired(app.nPlayers, app.inputPlayer);
+	return false;
+}
+bool modeHoldShouldToggle(bool pressBeganOnMode, bool heldLongEnough) {
+	return EmuEx::modeHoldTogglesLayout(pressBeganOnMode, heldLongEnough);
+}
+bool modePressRemainsPending(bool pending, bool samePointer, bool releasedOrCanceled) {
+	return EmuEx::modePressRemainsPending(pending, samePointer, releasedOrCanceled);
+}
+bool midGameOverlayTap(bool currentlyOn, bool wanted, bool gameLoaded, bool singlePlayer) {
+	return EmuEx::midGameOverlayTap(currentlyOn, wanted, gameLoaded, singlePlayer);
+}
+bool midGameOverlayDeferred(bool currentlyOn, bool wanted, bool gameLoaded, bool singlePlayer) {
+	return EmuEx::midGameOverlayDeferred(currentlyOn, wanted, gameLoaded, singlePlayer);
+}
+int overlayForcedPadEnd(int port, int playerCount, int inputPlayer) {
+	return EmuEx::overlayForcedPadEnd(port, playerCount, inputPlayer);
+}
 void setPadSize(int s, int v) { app.size[s] = v; } int padSize(int s) { return app.size[s]; }
 void setPadAlpha(int s, int v) { app.alpha[s] = v; } int padAlpha(int s) { return app.alpha[s]; }
 PortInputs pressTurbo(int s, int k) { if(s >= EmuEx::fanOutPlayers(app.nPlayers)) return {}; return press(s, k); }

@@ -775,6 +775,9 @@ public:
 	uint16_t jointTargetPorts() const;
 	uint8_t linkedPlayers() const { return linkMask_; }
 	void setLinkedPlayers(uint8_t mask);
+	// Apply Port 1/Port 2 overlay multitaps for the current player count
+	// and Virtual Gamepad Player. keepExisting is for mid-game switches.
+	void syncTouchMultitaps(bool keepExisting = true);
 	// Re-applies a fixed-player element's port, or the joint flag, after its
 	// keys were edited.
 	void bindKeysToSet(VControllerElement &elem) const { bindElementToItsPlayer(elem); }
@@ -828,6 +831,7 @@ private:
 	std::array<KeyInfo, 2> findGamepadElements(WPt pos);
 	KeyInfo keyboardKeyFromPointer(const Input::MotionEvent &);
 	void applyButtonSize();
+	void clearPendingModePress();
 	void resetEmulatedDeviceGroups(bool keepEmptied);
 	void supplementMissingPlayers();
 	void buildJointSet();

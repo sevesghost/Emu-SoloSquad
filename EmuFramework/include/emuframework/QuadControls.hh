@@ -261,9 +261,84 @@ constexpr const char *playerFaceLabel(int playerIndex, bool shared) noexcept
 	}
 }
 
-constexpr bool port1MultitapRequired(int playerCount) noexcept
+// On-screen 4-player mode uses slots 1-4 of a Port 1 multitap.
+// In 1-player mode the Virtual Gamepad Player (0-based inputPlayer) picks
+// the Saturn port: 0-1 are the two native ports, 2-5 (P3-P6) need a Port 1
+// multitap, and 6-11 (P7-P12) need both taps so those indices land on
+// Port 2's six slots (see SMPC MapPorts).
+constexpr bool port1MultitapRequired(int playerCount, int inputPlayer = 0) noexcept
 {
-	return playerCount >= 4;
+	if(playerCount >= 4)
+		return true;
+	if(playerCount <= 1)
+		return inputPlayer >= 2;
+	return false;
+}
+
+constexpr bool port2MultitapRequired(int playerCount, int inputPlayer = 0) noexcept
+{
+	return playerCount <= 1 && inputPlayer >= 6;
+}
+
+// The Mode button switches Joint/Separate only after a press that began on
+// the button and was held for the required time. A release after a press
+// that started elsewhere must not toggle the layout.
+constexpr bool modeHoldTogglesLayout(bool pressBeganOnMode, bool heldLongEnough) noexcept
+{
+	return pressBeganOnMode && heldLongEnough;
+}
+
+// A Mode press stays pending only until that same pointer is released or
+// canceled, including a release that ends off the button.
+constexpr bool modePressRemainsPending(bool pending, bool samePointer, bool releasedOrCanceled) noexcept
+{
+	if(pending && samePointer && releasedOrCanceled)
+		return false;
+	return pending;
+}
+
+// Mid-game, never drop an overlay tap that is already on (dropping remaps
+// P2). Adding a new tap is deferred only for a 2P/4P layout, because
+// enabling a Port 1 tap remaps P2 from physical Port 2 onto Port 1 slot 2.
+// In 1P there is no second on-screen player, so a newly needed tap (P3+)
+// is applied immediately. A load or reset (gameLoaded=false) applies
+// wanted as-is.
+constexpr bool midGameOverlayTap(bool currentlyOn, bool wanted, bool gameLoaded, bool singlePlayer = false) noexcept
+{
+	if(!gameLoaded)
+		return wanted;
+	if(currentlyOn)
+		return true;
+	if(singlePlayer)
+		return wanted;
+	return false;
+}
+
+constexpr bool midGameOverlayDeferred(bool currentlyOn, bool wanted, bool gameLoaded, bool singlePlayer = false) noexcept
+{
+	return gameLoaded && wanted && !currentlyOn && !singlePlayer;
+}
+
+// Exclusive end of the gamepad slots forced while an overlay tap is on.
+// Port 1 always covers slots 0-3 (4P). 1P extends through the selected
+// player when that player is on Port 1 (P5-P6 are slots 4-5). Port 2
+// covers only the selected 1P slot (P7-P12), not every unused slot.
+constexpr int overlayForcedPadEnd(int port, int playerCount, int inputPlayer) noexcept
+{
+	if(port == 0)
+	{
+		int end = 4;
+		if(playerCount <= 1 && inputPlayer >= 0 && inputPlayer < 6 && inputPlayer + 1 > end)
+			end = inputPlayer + 1;
+		return end;
+	}
+	if(port == 1)
+	{
+		if(playerCount <= 1 && inputPlayer >= 6 && inputPlayer < 12)
+			return inputPlayer + 1;
+		return 6;
+	}
+	return 0;
 }
 
 // Fan a shared button out to every active port, not only 0 and 1.

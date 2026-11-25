@@ -381,8 +381,9 @@ class ConsoleOptionView : public TableView, public MainAppHelper
 
 	TextHeadingMenuItem inputHeading{"Input", attachParams()};
 
-	// With four on-screen players Port 1's multitap and its first four pads
-	// are fixed. The menu shows that, and greys those items out.
+	// Overlay multitaps and the pad slots they force are fixed while in
+	// use. The menu shows that, and greys those items out. Forced slots
+	// match overlayPadEnd from setTouchMultitaps / effectiveInputConfig.
 	auto activeConfig() const { return system().effectiveInputConfig(system().inputConfig); }
 
 	BoolMenuItem multitapItem(int idx)
@@ -467,10 +468,21 @@ class ConsoleOptionView : public TableView, public MainAppHelper
 				i.setActive(false);
 			}
 		}
-		if(system().touchMultitap)
+		if(system().touchMultitap[0])
 		{
 			multitaps[0].setActive(false);
-			for(auto &i : inputDevices | std::views::take(4))
+			const int end = system().overlayPadEnd[0];
+			for(auto &i : inputDevices | std::views::take(end))
+			{
+				i.setActive(false);
+			}
+		}
+		if(system().touchMultitap[1])
+		{
+			multitaps[1].setActive(false);
+			const int begin = 6;
+			const int end = system().overlayPadEnd[1];
+			for(auto &i : inputDevices | std::views::drop(begin) | std::views::take(end - begin))
 			{
 				i.setActive(false);
 			}

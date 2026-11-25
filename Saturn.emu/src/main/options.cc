@@ -31,8 +31,9 @@ namespace EmuEx
 
 void SaturnSystem::onSessionOptionsLoaded(EmuApp &app)
 {
-	// Four on-screen players lay a Port 1 multitap over the loaded settings.
-	touchMultitap = app.defaultVController().playerControls() >= 4;
+	// A newly loaded game applies only the overlay taps this layout needs.
+	// Mid-game: keep existing overlay taps; 1P may add a needed tap, 1-2P to 4P waits for reload (see setTouchMultitaps).
+	app.defaultVController().syncTouchMultitaps(false);
 	applyInputConfig(app);
 }
 

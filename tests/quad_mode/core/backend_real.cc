@@ -14,10 +14,15 @@ void loadConfig(const std::vector<uint8_t> &) NA void openLayoutEditor() NA void
 void killAfterEditor() NA bool exists(int, int) NA bool hidden(int, int) NA Pos pos(int, int) NA int count(int) NA
 void removeBtn(int, int) NA void removeAllUI() NA void addBack(int, int) NA void moveBtn(int, int, Pos) NA
 void hideBtn(int, int, bool) NA PortInputs press(int, int) NA Rgb color(int) NA void switchLayout() NA
-void setPlayers(int) NA int players() NA uint8_t savedDuoFlags(const std::vector<uint8_t> &, int, int) NA
+void setPlayers(int) NA int players() NA void setInputPlayer(int) NA int inputPlayer() NA uint8_t savedDuoFlags(const std::vector<uint8_t> &, int, int) NA
 uint8_t savedDuoRole(const std::vector<uint8_t> &, int, int) NA std::vector<uint8_t> neoDuo2PlayerConfig() NA
 void resetUIGroups() NA bool multitapEnabled(int) NA void setPadSize(int, int) NA int padSize(int) NA
 void setPadAlpha(int, int) NA int padAlpha(int) NA PortInputs pressTurbo(int, int) NA
+bool modeHoldShouldToggle(bool, bool) NA
+bool modePressRemainsPending(bool, bool, bool) NA
+bool midGameOverlayTap(bool, bool, bool, bool) NA
+bool midGameOverlayDeferred(bool, bool, bool, bool) NA
+int overlayForcedPadEnd(int, int, int) NA
 }
 #else
 #include "backend_real_impl.inc" // written by west when the PR lands (maps helpers -> real VController API)
